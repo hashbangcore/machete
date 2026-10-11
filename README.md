@@ -45,8 +45,10 @@ cargo install --path .
 
 ## Commands
 
-Paths may be given as flags or as bare arguments, and a flag wins over a bare
-path. Both fall back to `config.toml`.
+Paths are given either as bare arguments or as flags, never both. Mixing the
+two is an error rather than a silent preference, because neither reading is
+obviously the one that was meant. Whatever is left unset falls back to
+`config.toml`.
 
 ```
 machete build                 both paths from config.toml
@@ -267,7 +269,7 @@ like any other.
 ## Development
 
 ```
-cargo test          # 123 tests
+cargo test          # 126 tests
 cargo clippy --all-targets
 cargo fmt
 just build          # build the scaffold into ./outputs/build-example

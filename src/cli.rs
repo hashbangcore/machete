@@ -34,10 +34,10 @@ pub enum Command {
 
 /// Arguments for `machete build`.
 ///
-/// Paths may be given as flags or as bare arguments. A single bare path is the
-/// output; two are the input and then the output. Whatever is left unset falls
-/// back to `config.toml`, and finally to the current directory and `public/`.
-/// Flags win over bare paths, and both win over the configuration.
+/// Paths are given either as flags or as bare arguments, never both. A single
+/// bare path is the output; two are the input and then the output. Whatever is
+/// left unset falls back to `config.toml`, and finally to the current directory
+/// and `public/`.
 #[derive(Debug, Args)]
 pub struct BuildArgs {
     /// Output path, or input and output when given twice.
@@ -62,11 +62,9 @@ impl BuildArgs {
     ///
     /// A lone bare path is the output, so only a pair carries an input.
     pub fn input(&self) -> Option<&Path> {
-        self.input.as_deref().or_else(|| {
-            // A lone bare path is the output, so the input needs a pair.
-            let pair = matches!(self.paths.as_slice(), [_, _]);
-            pair.then(|| self.paths[0].as_path())
-        })
+        self.input
+            .as_deref()
+            .or_else(|| (self.paths.len() > 1).then(|| self.paths[0].as_path()))
     }
 
     /// Returns the output to write, from the flag or the last bare path.
@@ -76,22 +74,42 @@ impl BuildArgs {
             .or_else(|| self.paths.last().map(PathBuf::as_path))
     }
 
-    /// Fails when more than two bare paths are given.
+    /// Rejects arguments that name the same thing twice or mix both forms.
+    ///
+    /// A bare path together with the matching flag is an error rather than a
+    /// silent preference for one of them, since neither reading is obviously
+    /// the one that was meant.
     pub fn check(&self) -> Result<(), BuildError> {
+        let mut flags = Vec::new();
+        if self.input.is_some() {
+            flags.push("-i");
+        }
+        if self.output.is_some() {
+            flags.push("-o");
+        }
+
+        if !flags.is_empty() && !self.paths.is_empty() {
+            return Err(BuildError::MixedArguments {
+                command: "build",
+                flags: flags.join(" and "),
+            });
+        }
+
         if self.paths.len() > 2 {
             return Err(BuildError::TooManyPaths {
                 command: "build",
                 given: self.paths.len(),
             });
         }
+
         Ok(())
     }
 }
 
 /// Arguments for `machete init`.
 ///
-/// Takes the directory as a bare path or as a flag, the same way `build` does.
-/// The flag wins. With neither, the site is written to the current directory.
+/// The directory is given either as a bare path or as a flag, never both. With
+/// neither, the site is written to the current directory.
 #[derive(Debug, Args)]
 pub struct InitArgs {
     /// Directory to create the new site in.
@@ -116,14 +134,22 @@ impl InitArgs {
             .unwrap_or_else(|| PathBuf::from("."))
     }
 
-    /// Fails when more than one bare path is given.
+    /// Rejects arguments that name the directory twice or mix both forms.
     pub fn check(&self) -> Result<(), BuildError> {
+        if self.output.is_some() && !self.paths.is_empty() {
+            return Err(BuildError::MixedArguments {
+                command: "init",
+                flags: "-o".to_string(),
+            });
+        }
+
         if self.paths.len() > 1 {
             return Err(BuildError::TooManyPaths {
                 command: "init",
                 given: self.paths.len(),
             });
         }
+
         Ok(())
     }
 }

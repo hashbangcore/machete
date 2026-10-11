@@ -144,6 +144,11 @@ pub enum BuildError {
     NoPages { templates: PathBuf },
     /// More bare paths were given than the command accepts.
     TooManyPaths { command: &'static str, given: usize },
+    /// A bare path and the matching flag were both given.
+    MixedArguments {
+        command: &'static str,
+        flags: String,
+    },
     /// A filesystem operation failed.
     Io(IoError),
     /// `config.toml` could not be parsed.
@@ -310,6 +315,10 @@ impl fmt::Display for BuildError {
             Self::NoPages { templates } => {
                 write!(f, "no pages to build in {}", templates.display())
             }
+            Self::MixedArguments { command, flags } => write!(
+                f,
+                "{command} takes paths as bare arguments or as {flags}, not both"
+            ),
             Self::TooManyPaths { command, given } => write!(
                 f,
                 "{command} takes at most {} path{}, {given} were given",

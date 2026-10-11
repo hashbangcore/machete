@@ -3,11 +3,12 @@
 //! These go through clap rather than the handlers, so they check what the
 //! justfile passes and the shorter forms a user types by hand.
 //!
-//! Precedence runs from strongest to weakest: a flag beats a bare path, a bare
+//! Paths are given either as bare arguments or as flags, never both. A bare
 //! path beats `config.toml`, and `config.toml` beats the built-in default.
 
 use clap::Parser;
 use machete::cli::{BuildArgs, Cli, Command, InitArgs};
+use machete::error::BuildError;
 use std::path::{Path, PathBuf};
 
 fn build_args(args: &[&str]) -> BuildArgs {
@@ -65,15 +66,24 @@ fn two_bare_paths_are_the_input_then_the_output() {
 }
 
 #[test]
-fn a_flag_beats_a_bare_path() {
-    assert_eq!(
-        input(&["-i", "flag", "site", "out"]),
-        Some(PathBuf::from("flag"))
-    );
-    assert_eq!(
-        output(&["-i", "site", "out", "-o", "flag"]),
-        Some(PathBuf::from("flag"))
-    );
+fn a_flag_with_a_bare_path_is_rejected() {
+    let error = build_args(&["-i", "flag", "site", "out"]).check();
+    assert!(matches!(error, Err(BuildError::MixedArguments { .. })));
+}
+
+#[test]
+fn the_mixed_message_names_the_flag_and_the_command() {
+    let Err(BuildError::MixedArguments { command, flags }) = build_args(&["-i", "a", "b"]).check()
+    else {
+        panic!("expected a mixed-arguments error");
+    };
+    assert_eq!(command, "build");
+    assert_eq!(flags, "-i");
+}
+
+#[test]
+fn both_flags_at_once_are_fine_without_bare_paths() {
+    assert!(build_args(&["-i", "a", "-o", "b"]).check().is_ok());
 }
 
 #[test]
@@ -124,11 +134,17 @@ fn init_defaults_to_the_current_directory() {
 }
 
 #[test]
-fn an_init_flag_beats_a_bare_path() {
-    assert_eq!(
-        init_args(&["bare", "-o", "flag"]).target(),
-        PathBuf::from("flag")
-    );
+fn an_init_flag_with_a_bare_path_is_rejected() {
+    let error = init_args(&["bare", "-o", "flag"]).check();
+    assert!(matches!(error, Err(BuildError::MixedArguments { .. })));
+}
+
+#[test]
+fn init_rejects_the_mix_even_with_a_third_path() {
+    // `init dir5 -o dir6 dir7` reports the mix, which is the better message:
+    // naming the directory twice in two ways is the real problem.
+    let error = init_args(&["dir5", "-o", "dir6", "dir7"]).check();
+    assert!(matches!(error, Err(BuildError::MixedArguments { .. })));
 }
 
 #[test]
