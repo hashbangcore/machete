@@ -4,9 +4,9 @@
 //! matched by an end tag, except void elements and the `<content/>` marker,
 //! which are self-closing by definition.
 
+use super::token::Token;
 use crate::error::{ParseError, TreeError};
 use crate::node::{Element, Node};
-use crate::token::Token;
 
 /// Accumulates nodes and tracks which element is currently open.
 ///
@@ -138,9 +138,9 @@ pub fn build(tokens: Vec<Token>) -> Result<Node, TreeError> {
 
 /// Parses HTML source into a document tree.
 ///
-/// Convenience wrapper over [`crate::token::tokenize`] and [`build`], for callers
-/// that have no use for the intermediate tokens.
+/// Convenience wrapper over [`super::token::tokenize`] and [`build`], for
+/// callers that have no use for the intermediate tokens.
 pub fn parse(src: &str) -> Result<Node, ParseError> {
-    let tokens = crate::token::tokenize(src)?;
+    let tokens = super::token::tokenize(src)?;
     Ok(build(tokens)?)
 }

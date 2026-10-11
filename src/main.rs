@@ -1,5 +1,4 @@
-use machete::render::render;
-use machete::tree::parse;
+use machete::{parse, render};
 use std::process::ExitCode;
 
 /// Reads HTML from an argument, parses it and prints the result.

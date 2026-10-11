@@ -4,9 +4,9 @@
 //! raw text elements, because braces inside a `<script>` or a `<style>` belong
 //! to that language rather than to Machete.
 
+use super::scope::Scope;
 use crate::error::SubstError;
 use crate::node::Node;
-use crate::scope::Scope;
 
 /// Replaces every `{name}` in the tree with the value found in `scope`.
 ///

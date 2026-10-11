@@ -2,7 +2,7 @@
 //!
 //! This is the first stage of parsing. It recognises tags, attributes, text and
 //! comments, but performs no nesting checks: matching start tags to end tags is
-//! the job of [`crate::tree::build`].
+//! the job of [`crate::html::build`].
 
 use crate::error::TokenizeError;
 use crate::node::Attr;

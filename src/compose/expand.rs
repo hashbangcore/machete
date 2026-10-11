@@ -7,9 +7,7 @@
 
 use crate::error::{ExpandError, ScopeError, ScriptError, SubstError};
 use crate::node::{Element, Node};
-use crate::scope::{Bindings, Scope};
-use crate::script::parse_bindings;
-use crate::substitute::substitute;
+use crate::vars::{Bindings, Scope, parse_bindings, substitute};
 use std::collections::HashMap;
 
 /// The attribute value that marks a tag as a component invocation.

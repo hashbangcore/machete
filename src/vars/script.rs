@@ -4,8 +4,8 @@
 //! line. `const`, `let` and `var` are all accepted and optional, which keeps the
 //! block valid JavaScript so syntax highlighting and linters still work.
 
+use super::scope::Bindings;
 use crate::error::ScriptError;
-use crate::scope::Bindings;
 
 /// Parses declarations of the form `name = "value"` into variable bindings.
 ///
