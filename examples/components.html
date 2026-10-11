@@ -1,0 +1,74 @@
+<!-- DEFINICIÓN -->
+<header>
+  <h1>{title}</h1>
+  <a href="{url}">{label}</a>
+  <div>
+    <content/>
+  </div>
+</header>
+
+
+<!-- USO: una variable por atributo -->
+<nav type="component" url="/acerca.html" label="Acerca de"></nav>
+
+
+<!-- USO: muchas variables por script -->
+<header type="component">
+  <script type="component">
+    const title = "mi titulo";
+    const url = "www.example.com";
+    const label = "pagina";
+  </script>
+</header>
+
+
+<!-- USO: con contenido -->
+<header type="component">
+  <script type="component">
+    const title = "mi titulo";
+  </script>
+
+  <div class="articulo">
+    contenido del articulo
+  </div>
+</header>
+
+
+<!-- ANIDAMIENTO -->
+<div>
+  <header type="component" title="Mi sitio"></header>
+  <main><content/></main>
+</div>
+
+
+<!-- EJEMPLO COMPLETO: definición -->
+<header>
+  <h1>{title}</h1>
+  <a href="{url}">page</a>
+  <div><content/></div>
+</header>
+
+
+<!-- EJEMPLO COMPLETO: uso -->
+<header type="component">
+  <script type="component">
+    const title = "mi titulo";
+    const url = "www.example.com";
+  </script>
+
+  <div class="articulo">
+    contenido del articulo
+  </div>
+</header>
+
+
+<!-- EJEMPLO COMPLETO: resultado -->
+<header>
+  <h1>mi titulo</h1>
+  <a href="www.example.com">page</a>
+  <div>
+    <div class="articulo">
+      contenido del articulo
+    </div>
+  </div>
+</header>
