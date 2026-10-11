@@ -1,21 +1,11 @@
-use machete::{parse, render};
+use clap::Parser;
+use machete::cli::{Cli, run};
 use std::process::ExitCode;
 
-/// Reads HTML from an argument, parses it and prints the result.
-///
-/// This is a placeholder for the real command line interface, which will read
-/// `config.toml`, expand a directory of templates and write pages to disk.
+/// Runs the command selected by the process arguments.
 fn main() -> ExitCode {
-    let Some(source) = std::env::args().nth(1) else {
-        eprintln!("usage: machete <html>");
-        return ExitCode::FAILURE;
-    };
-
-    match parse(&source) {
-        Ok(tree) => {
-            println!("{}", render(&tree));
-            ExitCode::SUCCESS
-        }
+    match run(Cli::parse()) {
+        Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("error: {error}");
             ExitCode::FAILURE

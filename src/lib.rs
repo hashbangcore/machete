@@ -20,12 +20,16 @@
 //! - [`html`] parses and renders documents.
 //! - [`vars`] resolves variable values.
 //! - [`compose`] combines components.
+//! - [`cli`] defines the command line interface.
 
+pub mod cli;
 pub mod compose;
 pub mod error;
 pub mod html;
 pub mod node;
 pub mod vars;
+
+pub use cli::{Cli, CliError, Command, run};
 
 pub use compose::{Defs, expand};
 pub use error::{
