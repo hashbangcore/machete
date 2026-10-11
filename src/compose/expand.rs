@@ -204,3 +204,231 @@ impl From<ScriptError> for ExpandError {
         ExpandError::Script(error)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::html::{parse, render};
+
+    fn defs(pairs: &[(&str, &str)]) -> Defs {
+        pairs
+            .iter()
+            .map(|(name, src)| (name.to_string(), parse(src).expect("valid definition")))
+            .collect()
+    }
+
+    fn scope() -> Scope {
+        Scope::new(
+            [("title".to_string(), "machete".to_string())]
+                .into_iter()
+                .collect(),
+        )
+    }
+
+    fn run(src: &str, defs: &Defs) -> Result<String, ExpandError> {
+        expand(&parse(src).expect("valid source"), defs, &scope()).map(|t| render(&t))
+    }
+
+    #[test]
+    fn expands_a_component() {
+        let defs = defs(&[("aside", "<aside>{title}</aside>")]);
+        assert_eq!(
+            run(r#"<aside type="component" title="hola"></aside>"#, &defs).unwrap(),
+            "<aside>hola</aside>"
+        );
+    }
+
+    #[test]
+    fn the_type_attribute_never_reaches_the_output() {
+        let defs = defs(&[("aside", "<aside>x</aside>")]);
+        let out = run(r#"<aside type="component"></aside>"#, &defs).unwrap();
+        assert!(!out.contains("type="), "output was {out}");
+    }
+
+    #[test]
+    fn an_attribute_is_consumed_as_a_variable() {
+        let defs = defs(&[("aside", "<aside>{url}</aside>")]);
+        assert_eq!(
+            run(r#"<aside type="component" url="/a"></aside>"#, &defs).unwrap(),
+            "<aside>/a</aside>"
+        );
+    }
+
+    #[test]
+    fn reads_variables_from_a_data_block() {
+        let defs = defs(&[("aside", "<aside>{title}</aside>")]);
+        let src = r#"<aside type="component"><script type="data">title = "hola";</script></aside>"#;
+        assert_eq!(run(src, &defs).unwrap(), "<aside>hola</aside>");
+    }
+
+    #[test]
+    fn a_data_block_never_reaches_the_output() {
+        let defs = defs(&[("aside", "<aside>x</aside>")]);
+        let src = r#"<aside type="component"><script type="data">a = "1";</script></aside>"#;
+        let out = run(src, &defs).unwrap();
+        assert!(!out.contains("script"), "output was {out}");
+    }
+
+    #[test]
+    fn an_attribute_value_is_resolved_before_it_becomes_a_local() {
+        let defs = defs(&[("head", "<head><title>{title}</title></head>")]);
+        assert_eq!(
+            run(r#"<head type="component" title="{title}"/>"#, &defs).unwrap(),
+            "<head><title>machete</title></head>"
+        );
+    }
+
+    #[test]
+    fn content_replaces_the_marker() {
+        let defs = defs(&[("figure", "<figure><content/></figure>")]);
+        assert_eq!(
+            run(r#"<figure type="component"><p>x</p></figure>"#, &defs).unwrap(),
+            "<figure><p>x</p></figure>"
+        );
+    }
+
+    #[test]
+    fn content_inside_the_marker_keeps_its_own_markup() {
+        let defs = defs(&[("figure", "<figure><content/></figure>")]);
+        assert_eq!(
+            run(
+                r#"<figure type="component"><div><b>x</b></div></figure>"#,
+                &defs
+            )
+            .unwrap(),
+            "<figure><div><b>x</b></div></figure>"
+        );
+    }
+
+    #[test]
+    fn content_is_rendered_inside_the_component_scope() {
+        let defs = defs(&[("figure", "<figure><content/></figure>")]);
+        let src = r#"<figure type="component" title="propio"><p>{title}</p></figure>"#;
+        assert_eq!(run(src, &defs).unwrap(), "<figure><p>propio</p></figure>");
+    }
+
+    #[test]
+    fn an_empty_marker_is_removed() {
+        let defs = defs(&[("figure", "<figure><content/></figure>")]);
+        assert_eq!(
+            run(r#"<figure type="component"/>"#, &defs).unwrap(),
+            "<figure></figure>"
+        );
+    }
+
+    #[test]
+    fn a_definition_without_a_marker_rejects_content() {
+        let defs = defs(&[("aside", "<aside>x</aside>")]);
+        assert!(matches!(
+            run(r#"<aside type="component"><p>x</p></aside>"#, &defs),
+            Err(ExpandError::MissingContentSlot { .. })
+        ));
+    }
+
+    #[test]
+    fn a_definition_without_a_marker_accepts_no_content() {
+        let defs = defs(&[("aside", "<aside>x</aside>")]);
+        let src = r#"<aside type="component"><script type="data">a = "1";</script></aside>"#;
+        assert_eq!(run(src, &defs).unwrap(), "<aside>x</aside>");
+    }
+
+    #[test]
+    fn two_markers_are_ambiguous() {
+        let defs = defs(&[("figure", "<figure><content/><content/></figure>")]);
+        assert!(matches!(
+            run(r#"<figure type="component"><p>x</p></figure>"#, &defs),
+            Err(ExpandError::DuplicateContentSlot { .. })
+        ));
+    }
+
+    #[test]
+    fn an_unknown_component_is_an_error() {
+        assert!(matches!(
+            run(r#"<nope type="component"/>"#, &Defs::new()),
+            Err(ExpandError::UnknownComponent { .. })
+        ));
+    }
+
+    #[test]
+    fn a_name_that_is_not_a_standard_tag_still_works() {
+        let defs = defs(&[("002-mmenu", "<nav>menu</nav>")]);
+        assert_eq!(
+            run(r#"<002-mmenu type="component"/>"#, &defs).unwrap(),
+            "<nav>menu</nav>"
+        );
+    }
+
+    #[test]
+    fn components_nest() {
+        let defs = defs(&[
+            ("outer", "<div><inner type=\"component\"/></div>"),
+            ("inner", "<span>in</span>"),
+        ]);
+        assert_eq!(
+            run(r#"<outer type="component"/>"#, &defs).unwrap(),
+            "<div><span>in</span></div>"
+        );
+    }
+
+    #[test]
+    fn a_name_supplied_twice_is_an_error() {
+        let defs = defs(&[("aside", "<aside>x</aside>")]);
+        let src = r#"<aside type="component" a="1"><script type="data">a = "2";</script></aside>"#;
+        assert!(matches!(run(src, &defs), Err(ExpandError::Nested { .. })));
+    }
+
+    #[test]
+    fn two_data_blocks_are_an_error() {
+        let defs = defs(&[("aside", "<aside>x</aside>")]);
+        let src = r#"<aside type="component"><script type="data">a="1";</script><script type="data">b="2";</script></aside>"#;
+        assert!(matches!(
+            run(src, &defs),
+            Err(ExpandError::DuplicateDataScript { .. })
+        ));
+    }
+
+    #[test]
+    fn a_data_block_outside_a_component_is_an_error() {
+        assert!(matches!(
+            run(
+                r#"<main><script type="data">a = "1";</script></main>"#,
+                &Defs::new()
+            ),
+            Err(ExpandError::LooseDataScript { .. })
+        ));
+    }
+
+    #[test]
+    fn an_undefined_variable_is_an_error() {
+        let defs = defs(&[("aside", "<aside>{nope}</aside>")]);
+        assert!(matches!(
+            run(r#"<aside type="component"/>"#, &defs),
+            Err(ExpandError::Nested { .. })
+        ));
+    }
+
+    #[test]
+    fn whitespace_around_a_data_block_is_not_content() {
+        let defs = defs(&[("aside", "<aside>x</aside>")]);
+        let src = "<aside type=\"component\">\n  <script type=\"data\">\n    a = \"1\";\n  </script>\n</aside>";
+        assert_eq!(run(src, &defs).unwrap(), "<aside>x</aside>");
+    }
+
+    #[test]
+    fn an_ordinary_script_is_content_and_survives_verbatim() {
+        let defs = defs(&[("aside", "<aside><content/></aside>")]);
+        let src = r#"<aside type="component"><script>if (a<b) { x = "{y}"; }</script></aside>"#;
+        assert_eq!(
+            run(src, &defs).unwrap(),
+            r#"<aside><script>if (a<b) { x = "{y}"; }</script></aside>"#
+        );
+    }
+
+    #[test]
+    fn an_ordinary_script_is_not_read_as_variables() {
+        let defs = defs(&[("aside", "<aside><content/></aside>")]);
+        // If the block were read as declarations, `a` would be undefined.
+        let src = r#"<aside type="component"><script>var a = 1;</script></aside>"#;
+        assert!(run(src, &defs).is_ok());
+    }
+}

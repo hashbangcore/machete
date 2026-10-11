@@ -79,3 +79,56 @@ impl Scope {
         &self.locals
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn vars(pairs: &[(&str, &str)]) -> Bindings {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn a_local_wins_over_a_global() {
+        let scope = Scope::new(vars(&[("title", "site")])).child(vars(&[("title", "page")]));
+        assert_eq!(scope.get("title"), Some("page"));
+    }
+
+    #[test]
+    fn a_global_is_still_reachable() {
+        let scope = Scope::new(vars(&[("lang", "es")])).child(vars(&[("title", "page")]));
+        assert_eq!(scope.get("lang"), Some("es"));
+    }
+
+    #[test]
+    fn a_local_does_not_change_the_global() {
+        let globals = vars(&[("title", "site")]);
+        let scope = Scope::new(globals.clone()).child(vars(&[("title", "page")]));
+        assert_eq!(globals.get("title").map(String::as_str), Some("site"));
+        assert_eq!(
+            scope.globals().get("title").map(String::as_str),
+            Some("site")
+        );
+    }
+
+    #[test]
+    fn an_unknown_name_is_absent() {
+        assert_eq!(Scope::new(Bindings::new()).get("nope"), None);
+    }
+
+    #[test]
+    fn merging_rejects_a_name_from_two_sources() {
+        let error = Scope::merge(&[vars(&[("a", "1")]), vars(&[("a", "2")])]);
+        assert!(matches!(error, Err(ScopeError::DuplicateVariable { .. })));
+    }
+
+    #[test]
+    fn merging_disjoint_sources_is_fine() {
+        let merged = Scope::merge(&[vars(&[("a", "1")]), vars(&[("b", "2")])]).expect("no clash");
+        assert_eq!(merged.get("a").map(String::as_str), Some("1"));
+        assert_eq!(merged.get("b").map(String::as_str), Some("2"));
+    }
+}

@@ -311,3 +311,110 @@ fn find_rawtext_end(src: &str, from: usize, tag: &str) -> Option<usize> {
 
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::node::Attr;
+
+    fn names(src: &str) -> Vec<String> {
+        tokenize(src)
+            .expect("valid source")
+            .iter()
+            .map(|t| match t {
+                Token::StartTag { name, .. } => format!("<{name}>"),
+                Token::EndTag { name, .. } => format!("</{name}>"),
+                Token::RawText { tag, .. } => format!("<{tag}>raw"),
+                Token::Doctype(text) => format!("<!{text}>"),
+                Token::Comment(text) => format!("<!--{text}-->"),
+                Token::Text(text) => format!("\"{}\"", text.trim()),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn splits_text_and_tags() {
+        assert_eq!(names("<p>hola</p>"), ["<p>", "\"hola\"", "</p>"]);
+    }
+
+    #[test]
+    fn reads_quoted_unquoted_and_bare_attributes() {
+        let attrs = |src: &str| match &tokenize(src).expect("ok")[0] {
+            Token::StartTag { attrs, .. } => attrs.clone(),
+            other => panic!("expected a start tag, got {other:?}"),
+        };
+
+        assert_eq!(
+            attrs(r#"<div id="x" hidden n=3 class='y'>"#),
+            vec![
+                Attr::new("id", "x"),
+                Attr::bare("hidden"),
+                Attr::new("n", "3"),
+                Attr::new("class", "y"),
+            ]
+        );
+    }
+
+    #[test]
+    fn lowercases_tag_and_attribute_names() {
+        let Token::StartTag { name, attrs, .. } = &tokenize(r#"<DIV CLASS="X">"#).expect("ok")[0]
+        else {
+            panic!("expected a start tag");
+        };
+        assert_eq!(name, "div");
+        assert_eq!(attrs.as_slice(), [Attr::new("class", "X")]);
+    }
+
+    #[test]
+    fn captures_raw_text_verbatim() {
+        let tokens = tokenize(r#"<script>if (a<b) { x = "{y}"; }</script>"#).expect("ok");
+
+        assert_eq!(tokens.len(), 1);
+        let Token::RawText { tag, content, .. } = &tokens[0] else {
+            panic!("expected raw text");
+        };
+        assert_eq!(tag, "script");
+        assert_eq!(content, r#"if (a<b) { x = "{y}"; }"#);
+    }
+
+    #[test]
+    fn a_raw_text_close_needs_the_exact_name() {
+        let tokens = tokenize("<script>a</scripted>b</script>").expect("ok");
+        assert_eq!(tokens.len(), 1);
+        let Token::RawText { content, .. } = &tokens[0] else {
+            panic!("expected raw text");
+        };
+        assert_eq!(content, "a</scripted>b");
+    }
+
+    #[test]
+    fn keeps_doctype_and_comments() {
+        assert_eq!(
+            names("<!DOCTYPE html><!-- hi --><p></p>"),
+            ["<!html>", "<!-- hi -->", "<p>", "</p>"]
+        );
+    }
+
+    #[test]
+    fn rejects_unterminated_comment() {
+        assert!(tokenize("<!-- hi").is_err());
+    }
+
+    #[test]
+    fn rejects_unclosed_raw_text() {
+        assert!(tokenize("<script>forever").is_err());
+    }
+
+    #[test]
+    fn a_lone_angle_bracket_is_text() {
+        assert_eq!(names("<p>a < b</p>"), ["<p>", "\"a < b\"", "</p>"]);
+    }
+
+    #[test]
+    fn accepts_names_that_are_not_standard_tags() {
+        let Token::StartTag { name, .. } = &tokenize("<002-mmenu/>").expect("ok")[0] else {
+            panic!("expected a start tag");
+        };
+        assert_eq!(name, "002-mmenu");
+    }
+}

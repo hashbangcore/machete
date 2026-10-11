@@ -67,3 +67,87 @@ pub fn apply_layout(layout: Node, page: Node) -> Result<Node, LayoutError> {
         _ => Err(LayoutError::DuplicateContentSlot),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::html::render;
+
+    fn parsed(src: &str) -> Node {
+        crate::html::parse(src).expect("valid source")
+    }
+
+    #[test]
+    fn takes_the_directive_out_of_the_page() {
+        let extracted =
+            extract_layout(parsed("<html type=\"layout\"/><main>x</main>")).expect("ok");
+        assert_eq!(extracted.layout, None);
+        assert_eq!(render(&extracted.page), "<main>x</main>");
+    }
+
+    #[test]
+    fn reads_a_named_layout() {
+        let extracted = extract_layout(parsed(
+            "<html type=\"layout\" name=\"article\"/><main>x</main>",
+        ))
+        .expect("ok");
+        assert_eq!(extracted.layout.as_deref(), Some("article"));
+    }
+
+    #[test]
+    fn a_page_without_the_directive_is_left_alone() {
+        let extracted = extract_layout(parsed("<main>x</main>")).expect("ok");
+        assert_eq!(extracted.layout, None);
+        assert_eq!(render(&extracted.page), "<main>x</main>");
+    }
+
+    #[test]
+    fn a_plain_html_tag_is_not_a_directive() {
+        let extracted =
+            extract_layout(parsed(r#"<html lang="es"><body>x</body></html>"#)).expect("ok");
+        assert_eq!(extracted.layout, None);
+        assert!(render(&extracted.page).contains(r#"<html lang="es">"#));
+    }
+
+    #[test]
+    fn inserts_the_page_where_the_marker_was() {
+        let layout = parsed("<html><body><content/></body></html>");
+        let merged = apply_layout(layout, parsed("<main>x</main>")).expect("ok");
+        assert_eq!(render(&merged), "<html><body><main>x</main></body></html>");
+    }
+
+    #[test]
+    fn the_marker_is_gone_afterwards() {
+        let layout = parsed("<html><body><content/></body></html>");
+        let merged = apply_layout(layout, parsed("<main>x</main>")).expect("ok");
+        assert!(!render(&merged).contains("content"));
+    }
+
+    #[test]
+    fn a_layout_without_a_marker_is_an_error() {
+        let layout = parsed("<html><body></body></html>");
+        assert!(matches!(
+            apply_layout(layout, parsed("<main>x</main>")),
+            Err(LayoutError::NoContentSlot)
+        ));
+    }
+
+    #[test]
+    fn two_markers_in_a_layout_are_ambiguous() {
+        let layout = parsed("<html><body><content/><content/></body></html>");
+        assert!(matches!(
+            apply_layout(layout, parsed("<main>x</main>")),
+            Err(LayoutError::DuplicateContentSlot)
+        ));
+    }
+
+    #[test]
+    fn a_marker_inside_an_invocation_still_works() {
+        let layout = parsed(r#"<body><main type="component"><content/></main></body>"#);
+        let merged = apply_layout(layout, parsed("<p>x</p>")).expect("ok");
+        assert_eq!(
+            render(&merged),
+            r#"<body><main type="component"><p>x</p></main></body>"#
+        );
+    }
+}

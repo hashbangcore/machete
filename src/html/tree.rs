@@ -146,3 +146,77 @@ pub fn parse(src: &str) -> Result<Node, ParseError> {
     let tokens = super::token::tokenize(src)?;
     Ok(build(tokens)?)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::html::render;
+
+    fn roundtrip(src: &str) -> String {
+        render(&parse(src).expect("valid source"))
+    }
+
+    #[test]
+    fn nests_elements() {
+        assert_eq!(
+            roundtrip("<div><section><p>x</p></section></div>"),
+            "<div><section><p>x</p></section></div>"
+        );
+    }
+
+    #[test]
+    fn void_elements_never_nest() {
+        assert_eq!(
+            roundtrip("<br><img src=\"a.png\">"),
+            "<br><img src=\"a.png\">"
+        );
+    }
+
+    #[test]
+    fn content_marker_is_self_closing() {
+        assert_eq!(roundtrip("<div><content/></div>"), "<div><content/></div>");
+    }
+
+    #[test]
+    fn component_invocation_may_self_close() {
+        let tree = parse(r#"<header type="component" title="x"/>"#).expect("valid");
+        let element = tree.child_list().unwrap()[0].as_element().unwrap();
+        assert_eq!(element.name, "header");
+        assert!(element.children.is_empty());
+    }
+
+    #[test]
+    fn layout_directive_may_self_close() {
+        assert!(parse(r#"<html type="layout"/>"#).is_ok());
+    }
+
+    #[test]
+    fn a_non_void_tag_does_not_self_close() {
+        assert!(parse("<div/>").is_err());
+        assert!(parse("<span></span/></div>").is_err());
+    }
+
+    #[test]
+    fn rejects_a_tag_left_open() {
+        assert!(parse("<div><p>a</div>").is_err());
+    }
+
+    #[test]
+    fn rejects_an_unmatched_end_tag() {
+        assert!(parse("<div>a</section>").is_err());
+    }
+
+    #[test]
+    fn raw_text_becomes_an_element_with_one_text_child() {
+        let tree = parse("<script>a<b</script>").expect("valid");
+        let script = tree.child_list().unwrap()[0].as_element().unwrap();
+        assert_eq!(script.name, "script");
+        assert!(matches!(script.children[0], Node::RawText { .. }));
+    }
+
+    #[test]
+    fn roundtrips_a_whole_document() {
+        let src = "<!DOCTYPE html><html lang=\"es\"><head><title>T</title></head><body><p>ok</p></body></html>";
+        assert_eq!(roundtrip(src), src);
+    }
+}
