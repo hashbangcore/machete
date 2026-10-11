@@ -4,7 +4,7 @@
 //! handler. Both live here rather than in `main.rs` so the argument parsing can
 //! be exercised from tests without spawning a process.
 
-use crate::build::{Config, build, write_scaffold};
+use crate::build::{Config, Overrides, build, write_scaffold};
 use crate::error::BuildError;
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
@@ -43,6 +43,14 @@ pub struct BuildArgs {
     #[arg(value_name = "INPUT:OUTPUT")]
     pub target: Option<String>,
 
+    /// Directory holding the templates.
+    #[arg(short, long, value_name = "DIR")]
+    pub templates: Option<PathBuf>,
+
+    /// Directory holding the static files.
+    #[arg(short = 'a', long, value_name = "DIR")]
+    pub assets: Option<PathBuf>,
+
     /// Empty the output directory before writing.
     #[arg(short, long)]
     pub force: bool,
@@ -77,6 +85,15 @@ impl BuildArgs {
             input: non_empty(input),
             output: non_empty(output),
         })
+    }
+
+    /// Returns the directories the flags set, leaving the rest to the file.
+    pub fn overrides(&self) -> Overrides {
+        Overrides {
+            output: None,
+            templates: self.templates.clone(),
+            assets: self.assets.clone(),
+        }
     }
 }
 
@@ -140,7 +157,7 @@ pub fn run(cli: Cli) -> Result<(), BuildError> {
     match cli.command {
         Command::Build(args) => {
             let target = args.parse()?;
-            let config = Config::load(&target.input())?;
+            let config = Config::load_with(&target.input(), &args.overrides())?;
             build(&config, &config.output_dir(target.output()), args.force)
         }
         Command::Init(args) => write_scaffold(&args.target(), args.force),

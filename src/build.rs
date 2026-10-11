@@ -20,6 +20,10 @@ const MAX_DEPTH: usize = 16;
 
 /// Reads every page from `config` and writes the finished HTML into `output`.
 ///
+/// Static files are copied from `config.assets` into `output` untouched, keeping
+/// whatever directories they sit in, so `assets/css/main.css` lands at
+/// `output/css/main.css`.
+///
 /// With `force` set, `output` is emptied first so pages from an earlier build
 /// cannot survive alongside the new ones.
 pub fn build(config: &Config, output: &Path, force: bool) -> Result<(), BuildError> {
@@ -43,6 +47,52 @@ pub fn build(config: &Config, output: &Path, force: bool) -> Result<(), BuildErr
     for path in pages {
         let page = build_page(config, &defs, &path)?;
         write_page(output, &path, &config.templates, &page)?;
+    }
+
+    copy_assets(config, output)?;
+
+    Ok(())
+}
+
+/// Copies every file under `config.assets` into `output`, unchanged.
+///
+/// The layout of the source directory is kept, so a file inside `css/` stays
+/// inside `css/`. A site with no assets directory simply has nothing to copy.
+fn copy_assets(config: &Config, output: &Path) -> Result<(), BuildError> {
+    if !config.assets.is_dir() {
+        return Ok(());
+    }
+
+    let mut pending = vec![config.assets.clone()];
+
+    while let Some(dir) = pending.pop() {
+        let entries = fs::read_dir(&dir)
+            .map_err(|source| BuildError::Io(IoError::new("read", &dir, source)))?;
+
+        for entry in entries {
+            let entry =
+                entry.map_err(|source| BuildError::Io(IoError::new("read", &dir, source)))?;
+            let path = entry.path();
+
+            if path.is_dir() {
+                pending.push(path);
+                continue;
+            }
+
+            let relative = path
+                .strip_prefix(&config.assets)
+                .expect("path came from walking the assets directory");
+            let target = output.join(relative);
+
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent).map_err(|source| {
+                    BuildError::Io(IoError::new("create directory", parent, source))
+                })?;
+            }
+
+            fs::copy(&path, &target)
+                .map_err(|source| BuildError::Io(IoError::new("copy", &path, source)))?;
+        }
     }
 
     Ok(())
@@ -272,6 +322,19 @@ fn collect_pages(templates: &Path) -> Result<Vec<PathBuf>, BuildError> {
 // Configuration
 // ---------------------------------------------------------------------------
 
+/// Directories given on the command line.
+///
+/// Each one beats the same name in `[build]`, which in turn beats the default.
+#[derive(Debug, Clone, Default)]
+pub struct Overrides {
+    /// Where the pages are written.
+    pub output: Option<PathBuf>,
+    /// Where the templates live.
+    pub templates: Option<PathBuf>,
+    /// Where the static files live.
+    pub assets: Option<PathBuf>,
+}
+
 /// The directories a site is made of.
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -283,6 +346,8 @@ pub struct Config {
     pub partials: PathBuf,
     /// Where additional layouts live.
     pub layouts: PathBuf,
+    /// Static files copied into the output untouched.
+    pub assets: PathBuf,
     /// Where the built pages go, relative to the root.
     pub output: PathBuf,
     /// Variables from `[data]`, available to every page, layout and component.
@@ -302,6 +367,7 @@ const PARTIALS: &str = "partials";
 const LAYOUTS: &str = "layouts";
 const CONFIG_FILE: &str = "machete.toml";
 const DEFAULT_OUTPUT: &str = "public";
+const DEFAULT_ASSETS: &str = "assets";
 
 /// The configuration table that holds the directory names.
 const BUILD: &str = "build";
@@ -317,8 +383,15 @@ impl Config {
     /// that, a forgotten `title` would be reported as an undefined variable and
     /// the real cause, a missing config file, would stay hidden.
     pub fn load(root: &Path) -> Result<Self, BuildError> {
+        Self::load_with(root, &Overrides::default())
+    }
+
+    /// Reads `machete.toml` from `root`, applying any directory a flag set.
+    ///
+    /// A flag beats the file, and the file beats the default.
+    pub fn load_with(root: &Path, overrides: &Overrides) -> Result<Self, BuildError> {
         let path = root.join(CONFIG_FILE);
-        let (parsed, output) = match std::fs::read_to_string(&path) {
+        let parsed = match std::fs::read_to_string(&path) {
             Ok(text) => parse_config(&text, &path)?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Err(BuildError::NoConfig {
@@ -328,7 +401,14 @@ impl Config {
             Err(source) => return Err(BuildError::Io(IoError::new("read", path, source))),
         };
 
-        let templates = root.join(TEMPLATES);
+        // Flag, then the file, then the default.
+        let templates = root.join(
+            overrides
+                .templates
+                .as_deref()
+                .or(parsed.dirs.templates.as_deref())
+                .unwrap_or(Path::new(TEMPLATES)),
+        );
 
         if !templates.is_dir() {
             return Err(BuildError::NotASite {
@@ -342,14 +422,29 @@ impl Config {
             partials: templates.join(PARTIALS),
             layouts: templates.join(LAYOUTS),
             templates,
-            output: output.unwrap_or_else(|| PathBuf::from(DEFAULT_OUTPUT)),
+            assets: root.join(
+                overrides
+                    .assets
+                    .as_deref()
+                    .or(parsed.dirs.assets.as_deref())
+                    .unwrap_or(Path::new(DEFAULT_ASSETS)),
+            ),
+            output: overrides
+                .output
+                .as_deref()
+                .or(parsed.dirs.public.as_deref())
+                .unwrap_or(Path::new(DEFAULT_OUTPUT))
+                .to_path_buf(),
             data: parsed.data,
             layout_data: parsed.layout_data,
             metadata: parsed.metadata,
         })
     }
 
-    /// Returns the output directory resolved against the site root.
+    /// Returns the output directory, resolved against the site root.
+    ///
+    /// A path given on the command line is used as written, so it stays
+    /// relative to the working directory rather than jumping to the root.
     pub fn output_dir(&self, override_path: Option<&Path>) -> PathBuf {
         match override_path {
             Some(path) => path.to_path_buf(),
@@ -357,17 +452,20 @@ impl Config {
         }
     }
 
-    /// Returns a scope holding only the global variables.
     /// Parses a configuration file held in memory.
     #[cfg(test)]
     pub(crate) fn parse_for_test(text: &str) -> Self {
-        let (parsed, output) = parse_config(text, Path::new("machete.toml")).expect("valid config");
+        let parsed = parse_config(text, Path::new(CONFIG_FILE)).expect("valid config");
         Self {
             root: PathBuf::from("."),
             templates: PathBuf::from(TEMPLATES),
             partials: PathBuf::from(TEMPLATES).join(PARTIALS),
             layouts: PathBuf::from(TEMPLATES).join(LAYOUTS),
-            output: output.unwrap_or_else(|| PathBuf::from(DEFAULT_OUTPUT)),
+            assets: PathBuf::from(DEFAULT_ASSETS),
+            output: parsed
+                .dirs
+                .public
+                .unwrap_or_else(|| PathBuf::from(DEFAULT_OUTPUT)),
             data: parsed.data,
             layout_data: parsed.layout_data,
             metadata: parsed.metadata,
@@ -400,24 +498,17 @@ impl Config {
 /// The keys at the top level are the global variables. The `paths` table is
 /// reserved: it configures where things live, so its keys never become
 /// variables.
-fn parse_config(text: &str, path: &Path) -> Result<(Parsed, Option<PathBuf>), BuildError> {
+fn parse_config(text: &str, path: &Path) -> Result<Parsed, BuildError> {
     let table: toml::Table = toml::from_str(text).map_err(|source| BuildError::Config {
         path: path.to_path_buf(),
         source,
     })?;
 
     let mut parsed = Parsed::default();
-    let mut output = None;
 
     for (key, value) in table {
         match key.as_str() {
-            BUILD => {
-                output = value
-                    .get("public")
-                    .map(|value| scalar(value.clone()))
-                    .filter(|text| !text.is_empty())
-                    .map(PathBuf::from);
-            }
+            BUILD => read_build(&value, &mut parsed.dirs),
 
             DATA => read_data(&value, &mut parsed)?,
 
@@ -429,7 +520,7 @@ fn parse_config(text: &str, path: &Path) -> Result<(Parsed, Option<PathBuf>), Bu
         }
     }
 
-    Ok((parsed, output))
+    Ok(parsed)
 }
 
 /// The variable sections read out of a configuration file.
@@ -438,6 +529,39 @@ struct Parsed {
     data: Bindings,
     layout_data: HashMap<String, Bindings>,
     metadata: Bindings,
+    dirs: Dirs,
+}
+
+/// The directory names read out of `[build]`.
+#[derive(Default)]
+struct Dirs {
+    public: Option<PathBuf>,
+    templates: Option<PathBuf>,
+    assets: Option<PathBuf>,
+}
+
+/// Reads the directory names out of `[build]`.
+///
+/// Each one is optional and falls back to its default, so a site only writes
+/// what it wants to change. `[build]` itself may be absent entirely.
+fn read_build(value: &toml::Value, dirs: &mut Dirs) {
+    let Some(table) = value.as_table() else {
+        return;
+    };
+
+    for (key, value) in table {
+        let slot = match key.as_str() {
+            "public" => &mut dirs.public,
+            "templates" => &mut dirs.templates,
+            "assets" => &mut dirs.assets,
+            _ => continue,
+        };
+
+        let name = scalar(value.clone());
+        if !name.is_empty() {
+            *slot = Some(PathBuf::from(name));
+        }
+    }
 }
 
 /// Reads `[data]` and the `[data.<layout>]` sections below it.

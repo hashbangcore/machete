@@ -6,7 +6,7 @@
 //! output.
 
 use machete::build::build;
-use machete::build::{Config, write_scaffold as write};
+use machete::build::{Config, Overrides, write_scaffold as write};
 use machete::error::BuildError;
 use std::path::{Path, PathBuf};
 
@@ -721,5 +721,106 @@ fn any_structure_the_user_writes_beside_data_is_left_alone() {
 
     let out = workspace.join("out");
     build(&config, &out, false).expect("a foreign structure does not stop a build");
+    assert!(out.join("index.html").exists());
+}
+
+#[test]
+fn assets_are_copied_untouched() {
+    let workspace = Workspace::new("assets-copy");
+    minimal_site(&workspace);
+    workspace.write("assets/main.css", "body { color: red }");
+    workspace.write("assets/css/main.css", ".a { color: blue }");
+    workspace.write("assets/bundle.js", "console.log(1)");
+    workspace.write("assets/bundles/one.js", "console.log(2)");
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out, false).expect("the build succeeds");
+
+    assert_eq!(workspace.read("out/main.css"), "body { color: red }");
+    assert_eq!(workspace.read("out/css/main.css"), ".a { color: blue }");
+    assert_eq!(workspace.read("out/bundle.js"), "console.log(1)");
+    assert_eq!(workspace.read("out/bundles/one.js"), "console.log(2)");
+}
+
+#[test]
+fn a_site_without_assets_builds_fine() {
+    let workspace = Workspace::new("assets-absent");
+    minimal_site(&workspace);
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out, false).expect("the build succeeds");
+
+    assert!(out.join("index.html").exists());
+}
+
+#[test]
+fn the_assets_directory_comes_from_the_configuration() {
+    let workspace = Workspace::new("assets-config");
+    minimal_site(&workspace);
+    workspace.write(
+        "machete.toml",
+        "[data]\ntitle = \"t\"\n\n[build]\nassets = \"recursos\"\n",
+    );
+    workspace.write("recursos/estilo.css", "h1 {}");
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out, false).expect("the build succeeds");
+
+    assert!(out.join("estilo.css").exists());
+}
+
+#[test]
+fn the_templates_directory_comes_from_the_configuration() {
+    let workspace = Workspace::new("templates-config");
+    workspace.write(
+        "machete.toml",
+        "[data]\ntitle = \"t\"\n\n[build]\ntemplates = \"plantillas\"\n",
+    );
+    workspace.write(
+        "plantillas/layout.html",
+        "<html><body><content/></body></html>\n",
+    );
+    workspace.write(
+        "plantillas/index.html",
+        "<html type=\"layout\"/>\n<main>x</main>\n",
+    );
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out, false).expect("the build succeeds");
+
+    assert!(out.join("index.html").exists());
+}
+
+#[test]
+fn a_flag_beats_the_configuration() {
+    let workspace = Workspace::new("assets-flag");
+    workspace.write(
+        "machete.toml",
+        "[data]\ntitle = \"t\"\n\n[build]\ntemplates = \"plantillas\"\n",
+    );
+    workspace.write(
+        "plantillas/layout.html",
+        "<html><body><content/></body></html>\n",
+    );
+    workspace.write(
+        "plantillas/index.html",
+        "<html type=\"layout\"/>\n<main>x</main>\n",
+    );
+    workspace.write("otro/layout.html", "<html><body><content/></body></html>\n");
+    workspace.write(
+        "otro/index.html",
+        "<html type=\"layout\"/>\n<main>otro</main>\n",
+    );
+
+    let overrides = Overrides {
+        templates: Some(PathBuf::from("otro")),
+        ..Default::default()
+    };
+    let config = Config::load_with(&workspace.path, &overrides).expect("loads");
+
+    assert_eq!(config.templates, workspace.join("otro"));
+
+    let out = workspace.join("out");
+    build(&config, &out, false).expect("the build succeeds");
     assert!(out.join("index.html").exists());
 }

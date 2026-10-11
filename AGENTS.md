@@ -35,7 +35,7 @@ Estructura propuesta:
 │       ├── header.html
 │       ├── navigation.html
 │       └── footer.html
-├── static/
+├── assets/
 └── public/
 ```
 
@@ -43,7 +43,7 @@ Estructura propuesta:
 - `templates/partials/`: definiciones de componentes.
 - `templates/layout.html`: layout predeterminado opcional.
 - `templates/layouts/`: layouts adicionales opcionales.
-- `static/`: recursos estáticos.
+- `assets/`: recursos estáticos, que se copian a la salida sin procesarlos.
 - `public/`: directorio de salida.
 
 Las rutas deben ser configurables. Esta estructura es una propuesta predeterminada, no una obligación para todos los proyectos.
@@ -229,7 +229,11 @@ public = "public"
 templates = "templates"
 ```
 
-Con ese fichero, el sitio lee las plantillas de `templates/` y escribe en `public/`.
+Con ese fichero, el sitio lee las plantillas de `plantillas/`, copia `assets/` y escribe en `public/`.
+
+Los recursos de `assets/` se copian a `public/` tal cual, conservando sus subdirectorios: `assets/css/main.css` acaba en `public/css/main.css`.
+
+Las líneas de comandos `-t` y `-a` cambian los directorios de plantillas y recursos, y tienen preferencia sobre el fichero.
 
 ### 4.3. Scope local
 

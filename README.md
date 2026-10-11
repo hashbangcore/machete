@@ -48,6 +48,8 @@ cargo install --path .
 | Command | What it does |
 |---|---|
 | `machete build [input:output]` | Expands a site into finished pages |
+| `machete build -t <dir>` | Reads the templates from another directory |
+| `machete build -a <dir>` | Copies the static files from another directory |
 | `machete build -f [input:output]` | Empties the output first, so stale pages cannot survive |
 | `machete init [dir]` | Writes a new site |
 | `machete init -f [dir]` | Overwrites files that already exist |
@@ -84,11 +86,21 @@ machete init output/dir/new-site    the whole path, parents included
 ```
 .
 ├── machete.toml
-└── templates/
-    ├── layout.html
-    ├── index.html
-    ├── layouts/          optional, for named layouts
-    └── partials/         component definitions, one per file
+├── templates/
+│   ├── layout.html
+│   ├── index.html
+│   ├── layouts/          optional, for named layouts
+│   └── partials/         component definitions, one per file
+└── assets/               optional, copied to the output untouched
+```
+
+Files under `assets/` are copied into the output as they are, keeping their
+directories:
+
+```
+assets/main.css      →  public/main.css
+assets/css/main.css  →  public/css/main.css
+assets/bundles/*.js  →  public/bundles/*.js
 ```
 
 Every `.html` file under `templates/` becomes a page, except `layout.html`, the
@@ -279,7 +291,15 @@ title = "machete"
 ```
 
 `build` is reserved: its keys name the directories and never become variables.
-Each one falls back to its default when it is not given.
+Each one falls back to its default when it is not given, so `[build]` may name
+just what differs from the usual layout:
+
+```toml
+[build]
+assets = "recursos"
+public = "public"
+templates = "plantillas"
+```
 
 Local variables belong to a single component invocation, through its attributes
 or its data block. They do not change the globals.
@@ -346,7 +366,7 @@ Machete stops rather than writing a page half-rendered.
 ## Development
 
 ```
-cargo test              # 139 tests
+cargo test              # 144 tests
 cargo clippy --all-targets
 cargo fmt
 just build              # build the scaffold into ./outputs/build-example
