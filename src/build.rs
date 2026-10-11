@@ -11,6 +11,7 @@ use crate::error::{BuildError, ExpandError, IoError, LayoutError};
 use crate::html::{parse, render};
 use crate::node::Node;
 use crate::vars::{Bindings, Scope, substitute};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -49,13 +50,16 @@ pub fn build(config: &Config, output: &Path, force: bool) -> Result<(), BuildErr
 
 /// Builds one page and returns the HTML to write.
 fn build_page(config: &Config, defs: &Defs, path: &Path) -> Result<String, BuildError> {
-    let scope = config.scope();
     let parsed = read_page(path)?;
 
     let extracted = extract_layout(parsed).map_err(|source| BuildError::Layout {
         path: path.to_path_buf(),
         source,
     })?;
+
+    // After extraction, because the layout a page asked for decides which
+    // variables it sees.
+    let scope = config.scope_for(extracted.layout.as_deref());
 
     let layout_path = config.layout_path(extracted.layout.as_deref());
 
@@ -281,8 +285,15 @@ pub struct Config {
     pub layouts: PathBuf,
     /// Where the built pages go, relative to the root.
     pub output: PathBuf,
-    /// Variables available to every page, layout and component.
-    pub globals: Bindings,
+    /// Variables from `[data]`, available to every page, layout and component.
+    pub data: Bindings,
+    /// Variables from `[data.<layout>]`, each merged over `[data]`.
+    pub layout_data: HashMap<String, Bindings>,
+    /// Top-level keys such as `author` or `version`.
+    ///
+    /// Machete never injects these. They are kept so a user can define whatever
+    /// else they want in the file, for a pipeline or for themselves.
+    pub metadata: Bindings,
 }
 
 /// The default directory names, used when a site is laid out conventionally.
@@ -295,6 +306,9 @@ const DEFAULT_OUTPUT: &str = "public";
 /// The configuration table that configures paths rather than variables.
 const PATHS: &str = "paths";
 
+/// The configuration table holding the variables injected into the site.
+const DATA: &str = "data";
+
 impl Config {
     /// Reads `machete.toml` from `root` and resolves the site directories.
     ///
@@ -304,7 +318,7 @@ impl Config {
     /// the real cause, a missing config file, would stay hidden.
     pub fn load(root: &Path) -> Result<Self, BuildError> {
         let path = root.join(CONFIG_FILE);
-        let (globals, output) = match std::fs::read_to_string(&path) {
+        let (parsed, output) = match std::fs::read_to_string(&path) {
             Ok(text) => parse_config(&text, &path)?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Err(BuildError::NoConfig {
@@ -329,7 +343,9 @@ impl Config {
             layouts: templates.join(LAYOUTS),
             templates,
             output: output.unwrap_or_else(|| PathBuf::from(DEFAULT_OUTPUT)),
-            globals,
+            data: parsed.data,
+            layout_data: parsed.layout_data,
+            metadata: parsed.metadata,
         })
     }
 
@@ -342,8 +358,32 @@ impl Config {
     }
 
     /// Returns a scope holding only the global variables.
-    pub fn scope(&self) -> Scope {
-        Scope::new(self.globals.clone())
+    /// Parses a configuration file held in memory.
+    #[cfg(test)]
+    pub(crate) fn parse_for_test(text: &str) -> Self {
+        let (parsed, output) = parse_config(text, Path::new("machete.toml")).expect("valid config");
+        Self {
+            root: PathBuf::from("."),
+            templates: PathBuf::from(TEMPLATES),
+            partials: PathBuf::from(TEMPLATES).join(PARTIALS),
+            layouts: PathBuf::from(TEMPLATES).join(LAYOUTS),
+            output: output.unwrap_or_else(|| PathBuf::from(DEFAULT_OUTPUT)),
+            data: parsed.data,
+            layout_data: parsed.layout_data,
+            metadata: parsed.metadata,
+        }
+    }
+
+    /// Returns the variables a page using `layout` should see.
+    ///
+    /// `[data.<layout>]` was already merged over `[data]` when the config was
+    /// read, so this is a lookup. A layout without a section of its own sees
+    /// the base on its own.
+    pub fn scope_for(&self, layout: Option<&str>) -> Scope {
+        let merged = layout
+            .and_then(|name| self.layout_data.get(name))
+            .unwrap_or(&self.data);
+        Scope::new(merged.clone())
     }
 
     /// Reads the layout with the given name, or the default one when unnamed.
@@ -360,28 +400,89 @@ impl Config {
 /// The keys at the top level are the global variables. The `paths` table is
 /// reserved: it configures where things live, so its keys never become
 /// variables.
-fn parse_config(text: &str, path: &Path) -> Result<(Bindings, Option<PathBuf>), BuildError> {
+fn parse_config(text: &str, path: &Path) -> Result<(Parsed, Option<PathBuf>), BuildError> {
     let table: toml::Table = toml::from_str(text).map_err(|source| BuildError::Config {
         path: path.to_path_buf(),
         source,
     })?;
 
-    let mut globals = Bindings::new();
+    let mut parsed = Parsed::default();
     let mut output = None;
 
     for (key, value) in table {
-        if key == PATHS {
-            output = value
-                .get("output")
-                .map(|value| scalar(value.clone()))
-                .filter(|text| !text.is_empty())
-                .map(PathBuf::from);
-            continue;
+        match key.as_str() {
+            PATHS => {
+                output = value
+                    .get("output")
+                    .map(|value| scalar(value.clone()))
+                    .filter(|text| !text.is_empty())
+                    .map(PathBuf::from);
+            }
+
+            DATA => read_data(&value, &mut parsed)?,
+
+            // Anything else belongs to the user. Machete neither reads nor
+            // injects it, so a site may keep whatever it likes alongside.
+            _ => {
+                parsed.metadata.insert(key, scalar(value));
+            }
         }
-        globals.insert(key, scalar(value));
     }
 
-    Ok((globals, output))
+    Ok((parsed, output))
+}
+
+/// The variable sections read out of a configuration file.
+#[derive(Default)]
+struct Parsed {
+    data: Bindings,
+    layout_data: HashMap<String, Bindings>,
+    metadata: Bindings,
+}
+
+/// Reads `[data]` and the `[data.<layout>]` sections below it.
+///
+/// A scalar belongs to `[data]`. A table names a layout, and its values are
+/// merged over the base so the layout inherits whatever it does not repeat.
+/// A table inside one of those is a level too deep and is reported.
+fn read_data(value: &toml::Value, parsed: &mut Parsed) -> Result<(), BuildError> {
+    let Some(table) = value.as_table() else {
+        return Ok(());
+    };
+
+    // Two passes. The first collects the base, the second merges each layout
+    // over it. Doing both in one pass would merge over a base that is still
+    // being filled, so a layout would miss keys written after it in the file.
+    let mut base = Bindings::new();
+    let mut layouts: Vec<(String, &toml::Table)> = Vec::new();
+
+    for (key, value) in table {
+        match value.as_table() {
+            Some(layout) => layouts.push((key.clone(), layout)),
+            None => {
+                base.insert(key.clone(), scalar(value.clone()));
+            }
+        }
+    }
+
+    for (name, layout) in layouts {
+        let mut merged = base.clone();
+
+        for (key, value) in layout {
+            if value.is_table() {
+                return Err(BuildError::NestedData {
+                    name: format!("{name}.{key}"),
+                });
+            }
+            merged.insert(key.clone(), scalar(value.clone()));
+        }
+
+        parsed.layout_data.insert(name, merged);
+    }
+
+    parsed.data = base;
+
+    Ok(())
 }
 
 /// Renders a TOML scalar as the text a variable should hold.
@@ -458,4 +559,59 @@ fn scaffold_files() -> Vec<ScaffoldFile> {
             contents: include_str!("../scaffold/templates/partials/figure.html"),
         },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(text: &str) -> Config {
+        Config::parse_for_test(text)
+    }
+
+    #[test]
+    fn data_becomes_the_base() {
+        let config = parse("[data]\ntitle = \"t\"\n");
+        assert_eq!(config.data.get("title").map(String::as_str), Some("t"));
+        assert!(config.layout_data.is_empty());
+    }
+
+    #[test]
+    fn layout_data_merges_over_the_base() {
+        let config =
+            parse("[data]\ntitle = \"t\"\nlang = \"es\"\n\n[data.about]\ntitle = \"about\"\n");
+        assert_eq!(config.scope_for(Some("about")).get("title"), Some("about"));
+        assert_eq!(config.scope_for(Some("about")).get("lang"), Some("es"));
+    }
+
+    #[test]
+    fn a_layout_without_a_section_sees_only_the_base() {
+        let config = parse("[data]\ntitle = \"t\"\n\n[data.about]\ntitle = \"about\"\n");
+        assert_eq!(config.scope_for(Some("other")).get("title"), Some("t"));
+    }
+
+    #[test]
+    fn loose_keys_land_in_metadata() {
+        let config = parse("author = \"hash\"\n\n[data]\ntitle = \"t\"\n");
+        assert_eq!(
+            config.metadata.get("author").map(String::as_str),
+            Some("hash")
+        );
+        assert!(!config.data.contains_key("author"));
+    }
+
+    #[test]
+    fn nesting_two_deep_is_rejected() {
+        let error = match parse_config("[data.blog.post]\ntitle = \"x\"\n", Path::new("x")) {
+            Err(error) => error,
+            Ok(_) => panic!("expected a nested-data error"),
+        };
+        assert!(matches!(error, BuildError::NestedData { .. }));
+    }
+
+    #[test]
+    fn a_foreign_structure_does_not_stop_the_parse() {
+        let config = parse("[ci]\nrun = \"x\"\n\n[data]\ntitle = \"t\"\n");
+        assert_eq!(config.data.get("title").map(String::as_str), Some("t"));
+    }
 }

@@ -235,14 +235,47 @@ definition and leave nowhere to put the page.
 
 ## Variables
 
-Global variables are declared in `machete.toml`. The keys at the top level are
-the globals, and they reach every page, layout and component:
+Global variables are declared under `[data]` in `machete.toml`, and they reach
+every page, layout and component:
 
 ```toml
+[data]
 title = "machete"
+lang = "es"
 
 [paths]
 output = "public"
+```
+
+A layout can have its own under `[data.<layout>]`. Those inherit from `[data]`
+and override only what they repeat:
+
+```toml
+[data]
+title = "machete"
+lang = "es"
+
+[data.about]
+title = "About"
+```
+
+A page using `<html type="layout" name="about"/>` then sees `title` as `About`
+and `lang` as `es`. A layout with no section of its own sees only `[data]`.
+
+`[data]` is one level deep. `[data.blog.post]` is an error.
+
+Machete reads `[data]`, `[data.<layout>]` and `[paths]` and nothing else. Any
+other table is yours: it is never injected into the site, so you can keep
+whatever a pipeline needs in the same file.
+
+```toml
+author = "hash"
+
+[ci]
+run = "cargo test"
+
+[data]
+title = "machete"
 ```
 
 `paths` is reserved: its keys configure where things live and never become
@@ -313,7 +346,7 @@ Machete stops rather than writing a page half-rendered.
 ## Development
 
 ```
-cargo test              # 125 tests
+cargo test              # 139 tests
 cargo clippy --all-targets
 cargo fmt
 just build              # build the scaffold into ./outputs/build-example

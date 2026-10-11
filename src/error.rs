@@ -149,6 +149,8 @@ pub enum BuildError {
     NoPages { templates: PathBuf },
     /// The `input:output` argument could not be read.
     InvalidTarget { found: String, reason: &'static str },
+    /// `[data]` nests further than one level, as in `[data.blog.post]`.
+    NestedData { name: String },
     /// A filesystem operation failed.
     Io(IoError),
     /// `machete.toml` could not be parsed.
@@ -329,6 +331,11 @@ impl fmt::Display for BuildError {
             Self::NoPages { templates } => {
                 write!(f, "no pages to build in {}", templates.display())
             }
+            Self::NestedData { name } => write!(
+                f,
+                "[data.{name}] nests a level too deep. \
+                 Use [data] or [data.<layout>], where <layout> is one name"
+            ),
             Self::InvalidTarget { found, reason } => write!(
                 f,
                 "cannot read '{found}': {reason}. Expected input:output, \

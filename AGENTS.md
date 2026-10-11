@@ -187,9 +187,37 @@ No se requieren etiquetas especiales para marcar las referencias a variables den
 
 Las variables globales se definen en `machete.toml` y están disponibles para las páginas, los layouts y los componentes.
 
-Las claves de primer nivel del fichero son globales:
+Las variables globales viven en `[data]`:
 
 ```toml
+[data]
+title = "machete"
+```
+
+Un layout puede tener las suyas con `[data.<layout>]`, que heredan de `[data]` y pisan lo que repitan:
+
+```toml
+[data]
+title = "machete"
+lang = "es"
+
+[data.about]
+title = "Acerca de"
+```
+
+Con ese fichero, la página `<html type="layout" name="about"/>` recibe `title` = `Acerca de` y `lang` = `es`. Un layout sin sección propia recibe solo `[data]`.
+
+`[data]` admite un solo nivel. Anidar más, como `[data.blog.post]`, es un error.
+
+Machete lee únicamente `[data]`, `[data.<layout>]` y `[paths]`. Cualquier otra tabla o clave del fichero es del usuario y no se inyecta, para que pueda guardar lo que necesite:
+
+```toml
+author = "hash"
+
+[ci]
+run = "cargo test"
+
+[data]
 title = "machete"
 ```
 

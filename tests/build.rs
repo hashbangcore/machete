@@ -51,7 +51,7 @@ impl Drop for Workspace {
 
 /// Writes a minimal site: one global variable, one component, one layout.
 fn minimal_site(workspace: &Workspace) {
-    workspace.write("machete.toml", "title = \"machete\"\n");
+    workspace.write("machete.toml", "[data]\ntitle = \"machete\"\n");
     workspace.write(
         "templates/layout.html",
         "<!DOCTYPE html>\n<html>\n<body>\n<content/>\n</body>\n</html>\n",
@@ -214,7 +214,7 @@ fn partials_are_never_built_as_pages() {
 #[test]
 fn a_missing_layout_is_reported() {
     let workspace = Workspace::new("build-no-layout");
-    workspace.write("machete.toml", "title = \"x\"\n");
+    workspace.write("machete.toml", "[data]\ntitle = \"x\"\n");
     workspace.write(
         "templates/index.html",
         "<html type=\"layout\"/>\n<main>y</main>\n",
@@ -318,21 +318,21 @@ fn init_writes_every_scaffold_file() {
 #[test]
 fn init_leaves_existing_files_alone_without_force() {
     let workspace = Workspace::new("init-no-force");
-    workspace.write("machete.toml", "title = \"mio\"\n");
+    workspace.write("machete.toml", "[data]\ntitle = \"mio\"\n");
 
     write(&workspace.path, false).expect("init runs");
 
-    assert_eq!(workspace.read("machete.toml"), "title = \"mio\"\n");
+    assert_eq!(workspace.read("machete.toml"), "[data]\ntitle = \"mio\"\n");
 }
 
 #[test]
 fn init_overwrites_with_force() {
     let workspace = Workspace::new("init-force");
-    workspace.write("machete.toml", "title = \"mio\"\n");
+    workspace.write("machete.toml", "[data]\ntitle = \"mio\"\n");
 
     write(&workspace.path, true).expect("init runs");
 
-    assert_ne!(workspace.read("machete.toml"), "title = \"mio\"\n");
+    assert_ne!(workspace.read("machete.toml"), "[data]\ntitle = \"mio\"\n");
 }
 
 #[test]
@@ -401,7 +401,7 @@ fn pointing_at_the_templates_directory_is_reported_as_no_config() {
     // The likelier mistake is naming templates/ as the input, which now fails
     // on the missing config rather than on the missing templates.
     let workspace = Workspace::new("build-wrong-input-2");
-    workspace.write("machete.toml", "title = \"x\"\n");
+    workspace.write("machete.toml", "[data]\ntitle = \"x\"\n");
     workspace.write(
         "templates/index.html",
         "<html type=\"layout\"/>\n<main>y</main>\n",
@@ -414,7 +414,7 @@ fn pointing_at_the_templates_directory_is_reported_as_no_config() {
 #[test]
 fn a_site_with_templates_but_no_pages_is_reported() {
     let workspace = Workspace::new("build-no-pages");
-    workspace.write("machete.toml", "title = \"x\"\n");
+    workspace.write("machete.toml", "[data]\ntitle = \"x\"\n");
     std::fs::create_dir_all(workspace.join("templates")).expect("creates templates");
 
     let out = workspace.join("out");
@@ -440,7 +440,7 @@ fn the_output_comes_from_the_configuration_by_default() {
     minimal_site(&workspace);
     workspace.write(
         "machete.toml",
-        "title = \"machete\"\n\n[paths]\noutput = \"sitio\"\n",
+        "[data]\ntitle = \"machete\"\n\n[paths]\noutput = \"sitio\"\n",
     );
 
     let config = workspace.site();
@@ -457,7 +457,7 @@ fn a_command_line_output_beats_the_configuration() {
     minimal_site(&workspace);
     workspace.write(
         "machete.toml",
-        "title = \"machete\"\n\n[paths]\noutput = \"sitio\"\n",
+        "[data]\ntitle = \"machete\"\n\n[paths]\noutput = \"sitio\"\n",
     );
 
     let config = workspace.site();
@@ -469,18 +469,18 @@ fn a_command_line_output_beats_the_configuration() {
 }
 
 #[test]
-fn paths_is_reserved_and_never_becomes_a_variable() {
-    let workspace = Workspace::new("paths-reserved");
+fn paths_and_data_are_reserved_and_never_become_variables() {
+    let workspace = Workspace::new("reserved-sections");
     minimal_site(&workspace);
     workspace.write(
         "machete.toml",
-        "title = \"x\"\n\n[paths]\noutput = \"public\"\n",
+        "[data]\ntitle = \"x\"\n\n[paths]\noutput = \"public\"\n",
     );
-    assert_eq!(workspace.site().globals.get("paths"), None);
-    assert_eq!(
-        workspace.site().globals.get("title").map(String::as_str),
-        Some("x")
-    );
+
+    let config = workspace.site();
+    assert_eq!(config.data.get("paths"), None);
+    assert_eq!(config.data.get("data"), None);
+    assert_eq!(config.data.get("title").map(String::as_str), Some("x"));
 }
 
 #[test]
@@ -494,7 +494,7 @@ fn the_output_defaults_to_public() {
 fn a_site_without_paths_still_builds_to_public() {
     let workspace = Workspace::new("paths-absent");
     minimal_site(&workspace);
-    workspace.write("machete.toml", "title = \"x\"\n");
+    workspace.write("machete.toml", "[data]\ntitle = \"x\"\n");
 
     let config = workspace.site();
     let out = config.output_dir(None);
@@ -523,4 +523,203 @@ fn a_page_keeps_the_directory_it_sits_in() {
     assert!(out.join("post.html").exists(), "root page missing");
     assert!(out.join("blog/post.html").exists(), "nested page missing");
     assert!(workspace.read("out/blog/post.html").contains("blog"));
+}
+
+/// Writes a site with a layout per name, so layout-specific data has
+/// somewhere to land.
+fn site_with_layouts(workspace: &Workspace, names: &[&str]) {
+    workspace.write("machete.toml", "[data]\ntitle = \"base\"\n");
+    workspace.write(
+        "templates/layout.html",
+        "<!DOCTYPE html>\n<html><body><content/></body></html>\n",
+    );
+    workspace.write(
+        "templates/index.html",
+        "<html type=\"layout\"/>\n<main>{title}|{lang}</main>\n",
+    );
+
+    for name in names {
+        workspace.write(
+            &format!("templates/layouts/{name}.html"),
+            &format!("<!DOCTYPE html>\n<html><body data=\"{name}\"><content/></body></html>\n"),
+        );
+        workspace.write(
+            &format!("templates/{name}.html"),
+            &format!("<html type=\"layout\" name=\"{name}\"/>\n<main>{{title}}|{{lang}}</main>\n"),
+        );
+    }
+}
+
+#[test]
+fn layout_data_overrides_the_base() {
+    let workspace = Workspace::new("data-override");
+    site_with_layouts(&workspace, &["about"]);
+    workspace.write(
+        "machete.toml",
+        "[data]\ntitle = \"base\"\nlang = \"es\"\n\n[data.about]\ntitle = \"about\"\n",
+    );
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out, false).expect("the build succeeds");
+
+    let about = workspace.read("out/about.html");
+    assert!(about.contains("<main>about|es</main>"), "page was {about}");
+    assert!(
+        workspace
+            .read("out/index.html")
+            .contains("<main>base|es</main>")
+    );
+}
+
+#[test]
+fn layout_data_inherits_from_the_base() {
+    let workspace = Workspace::new("data-inherit");
+    site_with_layouts(&workspace, &["about"]);
+    workspace.write(
+        "machete.toml",
+        "[data]\ntitle = \"base\"\nlang = \"es\"\n\n[data.about]\ntitle = \"about\"\n",
+    );
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out, false).expect("the build succeeds");
+
+    // about overrides title but keeps lang from [data]
+    assert!(
+        workspace
+            .read("out/about.html")
+            .contains("<main>about|es</main>"),
+        "page was {}",
+        workspace.read("out/about.html")
+    );
+}
+
+#[test]
+fn layouts_do_not_inherit_from_each_other() {
+    let workspace = Workspace::new("data-siblings");
+    site_with_layouts(&workspace, &["about", "gallery"]);
+    workspace.write(
+        "machete.toml",
+        "[data]\ntitle = \"base\"\nlang = \"es\"\n\n\
+         [data.about]\ntitle = \"about\"\n\n[data.gallery]\ntitle = \"gallery\"\n",
+    );
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out, false).expect("the build succeeds");
+
+    assert!(
+        workspace
+            .read("out/about.html")
+            .contains("<main>about|es</main>")
+    );
+    assert!(
+        workspace
+            .read("out/gallery.html")
+            .contains("<main>gallery|es</main>")
+    );
+}
+
+#[test]
+fn a_layout_with_no_section_of_its_own_sees_the_base() {
+    let workspace = Workspace::new("data-no-section");
+    site_with_layouts(&workspace, &["about"]);
+    workspace.write(
+        "machete.toml",
+        "[data]\ntitle = \"base\"\n\n[data.about]\ntitle = \"about\"\n",
+    );
+
+    let config = workspace.site();
+    assert_eq!(config.scope_for(Some("gallery")).get("title"), Some("base"));
+    assert_eq!(config.scope_for(Some("about")).get("title"), Some("about"));
+    assert_eq!(config.scope_for(None).get("title"), Some("base"));
+}
+
+#[test]
+fn a_loose_key_is_metadata_and_is_never_injected() {
+    let workspace = Workspace::new("data-metadata");
+    minimal_site(&workspace);
+    workspace.write(
+        "machete.toml",
+        "author = \"hash\"\nversion = \"1.2.3\"\n\n[data]\ntitle = \"machete\"\n",
+    );
+    workspace.write(
+        "templates/index.html",
+        "<html type=\"layout\"/>\n<main>{title}</main>\n",
+    );
+
+    let config = workspace.site();
+
+    // Kept, so the user can read them back.
+    assert_eq!(
+        config.metadata.get("author").map(String::as_str),
+        Some("hash")
+    );
+    assert_eq!(
+        config.metadata.get("version").map(String::as_str),
+        Some("1.2.3")
+    );
+
+    // Not injected: the page only ever saw {title}.
+    assert!(!config.data.contains_key("author"));
+
+    let out = workspace.join("out");
+    build(&config, &out, false).expect("the build succeeds");
+
+    let page = workspace.read("out/index.html");
+    assert!(!page.contains("hash"), "author reached the page: {page}");
+}
+
+#[test]
+fn a_loose_key_is_never_a_variable() {
+    let workspace = Workspace::new("data-metadata-unused");
+    minimal_site(&workspace);
+    workspace.write(
+        "machete.toml",
+        "author = \"hash\"\n\n[data]\ntitle = \"machete\"\n",
+    );
+
+    assert!(!workspace.site().data.contains_key("author"));
+}
+
+#[test]
+fn data_nested_a_level_too_deep_is_an_error() {
+    let workspace = Workspace::new("data-nested");
+    minimal_site(&workspace);
+    workspace.write(
+        "machete.toml",
+        "[data]\ntitle = \"base\"\n\n[data.blog.post]\ntitle = \"post\"\n",
+    );
+
+    let error = Config::load(&workspace.path).expect_err("too deep");
+    assert!(matches!(error, BuildError::NestedData { .. }));
+
+    let message = error.to_string();
+    assert!(
+        message.contains("[data.blog.post]"),
+        "message was {message}"
+    );
+    assert!(message.contains("one name"), "message was {message}");
+}
+
+#[test]
+fn any_structure_the_user_writes_beside_data_is_left_alone() {
+    // Machete reads [data], [data.*] and [paths]. Anything else belongs to the
+    // user and must not stop a build.
+    let workspace = Workspace::new("data-other-structure");
+    minimal_site(&workspace);
+    workspace.write(
+        "machete.toml",
+        "[ci]\nrun = \"cargo test\"\nretries = 3\n\n\
+         [pipeline.steps.build]\nimage = \"rust:1.99\"\n\n\
+         [data]\ntitle = \"machete\"\n\n[paths]\noutput = \"public\"\n",
+    );
+
+    let config = workspace.site();
+    assert_eq!(
+        config.data.get("title").map(String::as_str),
+        Some("machete")
+    );
+
+    let out = workspace.join("out");
+    build(&config, &out, false).expect("a foreign structure does not stop a build");
+    assert!(out.join("index.html").exists());
 }
