@@ -15,13 +15,13 @@ Queda fuera de su alcance:
 
 ## 2. Configuración
 
-El proyecto utiliza un fichero `config.toml` para definir las rutas y las variables globales.
+El proyecto utiliza un fichero `machete.toml` para definir las rutas y las variables globales.
 
 Estructura propuesta:
 
 ```
 .
-├── config.toml
+├── machete.toml
 ├── templates/
 │   ├── index.html
 │   ├── about.html
@@ -183,7 +183,7 @@ No se requieren etiquetas especiales para marcar las referencias a variables den
 
 ### 4.2. Scope global
 
-Las variables globales se definen en `config.toml` y están disponibles para las páginas, los layouts y los componentes.
+Las variables globales se definen en `machete.toml` y están disponibles para las páginas, los layouts y los componentes.
 
 Las claves de primer nivel del fichero son globales:
 

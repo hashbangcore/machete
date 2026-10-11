@@ -146,7 +146,7 @@ pub enum BuildError {
     InvalidTarget { found: String, reason: &'static str },
     /// A filesystem operation failed.
     Io(IoError),
-    /// `config.toml` could not be parsed.
+    /// `machete.toml` could not be parsed.
     Config {
         path: PathBuf,
         source: toml::de::Error,

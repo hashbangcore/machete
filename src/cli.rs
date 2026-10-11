@@ -35,7 +35,7 @@ pub enum Command {
 /// Arguments for `machete build`.
 ///
 /// Paths follow the Sass shape, `input:output`. Either side may be left empty,
-/// and an empty side is filled in from `config.toml` rather than defaulted here,
+/// and an empty side is filled in from `machete.toml` rather than defaulted here,
 /// so `machete build :dist` writes to `dist` only when the config says so.
 #[derive(Debug, Args)]
 pub struct BuildArgs {
@@ -80,7 +80,7 @@ impl BuildArgs {
     }
 }
 
-/// The two sides of a build, either of which may be left to `config.toml`.
+/// The two sides of a build, either of which may be left to `machete.toml`.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Target {
     pub input: Option<PathBuf>,

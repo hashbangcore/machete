@@ -4,7 +4,7 @@
 //! filesystem. The stages themselves are pure and live in [`crate::html`],
 //! [`crate::vars`] and [`crate::compose`].
 //!
-//! [`Config`] is here for the same reason: reading `config.toml` is I/O.
+//! [`Config`] is here for the same reason: reading `machete.toml` is I/O.
 
 use crate::compose::{self, Defs, apply_layout, extract_layout};
 use crate::error::{BuildError, ExpandError, IoError, LayoutError};
@@ -262,7 +262,7 @@ fn collect_pages(templates: &Path) -> Result<Vec<PathBuf>, BuildError> {
 /// The directories a site is made of.
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// The site root, the directory holding `config.toml`.
+    /// The site root, the directory holding `machete.toml`.
     pub root: PathBuf,
     /// Where pages and layouts live.
     pub templates: PathBuf,
@@ -280,16 +280,16 @@ pub struct Config {
 const TEMPLATES: &str = "templates";
 const PARTIALS: &str = "partials";
 const LAYOUTS: &str = "layouts";
-const CONFIG_FILE: &str = "config.toml";
+const CONFIG_FILE: &str = "machete.toml";
 const DEFAULT_OUTPUT: &str = "public";
 
 /// The configuration table that configures paths rather than variables.
 const PATHS: &str = "paths";
 
 impl Config {
-    /// Reads `config.toml` from `root` and resolves the site directories.
+    /// Reads `machete.toml` from `root` and resolves the site directories.
     ///
-    /// A missing `config.toml` is not an error: a site may define everything in
+    /// A missing `machete.toml` is not an error: a site may define everything in
     /// its pages, and the globals are simply empty. A missing `templates/` is an
     /// error, because a site with no templates has nothing to build and the
     /// mistake is far more often a wrong `-i` than an empty site.
@@ -421,8 +421,8 @@ struct ScaffoldFile {
 fn scaffold_files() -> Vec<ScaffoldFile> {
     vec![
         ScaffoldFile {
-            path: "config.toml",
-            contents: include_str!("../scaffold/config.toml"),
+            path: "machete.toml",
+            contents: include_str!("../scaffold/machete.toml"),
         },
         ScaffoldFile {
             path: "templates/layout.html",

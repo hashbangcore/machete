@@ -51,7 +51,7 @@ impl Drop for Workspace {
 
 /// Writes a minimal site: one global variable, one component, one layout.
 fn minimal_site(workspace: &Workspace) {
-    workspace.write("config.toml", "title = \"machete\"\n");
+    workspace.write("machete.toml", "title = \"machete\"\n");
     workspace.write(
         "templates/layout.html",
         "<!DOCTYPE html>\n<html>\n<body>\n<content/>\n</body>\n</html>\n",
@@ -214,7 +214,7 @@ fn partials_are_never_built_as_pages() {
 #[test]
 fn a_missing_layout_is_reported() {
     let workspace = Workspace::new("build-no-layout");
-    workspace.write("config.toml", "title = \"x\"\n");
+    workspace.write("machete.toml", "title = \"x\"\n");
     workspace.write(
         "templates/index.html",
         "<html type=\"layout\"/>\n<main>y</main>\n",
@@ -295,7 +295,7 @@ fn init_writes_every_scaffold_file() {
     write(&workspace.path, true).expect("init writes the scaffold");
 
     for relative in [
-        "config.toml",
+        "machete.toml",
         "templates/layout.html",
         "templates/index.html",
         "templates/partials/head.html",
@@ -307,21 +307,21 @@ fn init_writes_every_scaffold_file() {
 #[test]
 fn init_leaves_existing_files_alone_without_force() {
     let workspace = Workspace::new("init-no-force");
-    workspace.write("config.toml", "title = \"mio\"\n");
+    workspace.write("machete.toml", "title = \"mio\"\n");
 
     write(&workspace.path, false).expect("init runs");
 
-    assert_eq!(workspace.read("config.toml"), "title = \"mio\"\n");
+    assert_eq!(workspace.read("machete.toml"), "title = \"mio\"\n");
 }
 
 #[test]
 fn init_overwrites_with_force() {
     let workspace = Workspace::new("init-force");
-    workspace.write("config.toml", "title = \"mio\"\n");
+    workspace.write("machete.toml", "title = \"mio\"\n");
 
     write(&workspace.path, true).expect("init runs");
 
-    assert_ne!(workspace.read("config.toml"), "title = \"mio\"\n");
+    assert_ne!(workspace.read("machete.toml"), "title = \"mio\"\n");
 }
 
 #[test]
@@ -350,7 +350,7 @@ fn copy_scaffold(from: &Path, to: &Path) {
     let partials = from.join("templates/partials");
     let entries = std::fs::read_dir(&partials).expect("the scaffold has partials");
 
-    std::fs::copy(from.join("config.toml"), to.join("config.toml")).expect("copies config");
+    std::fs::copy(from.join("machete.toml"), to.join("machete.toml")).expect("copies config");
     std::fs::create_dir_all(to.join("templates")).expect("creates templates");
     for name in ["layout.html", "index.html"] {
         std::fs::copy(
@@ -373,7 +373,7 @@ fn an_input_without_templates_is_reported() {
     // Pointing -i at templates/ instead of the site root is the easy mistake
     // to make, and it used to produce an empty output and exit successfully.
     let workspace = Workspace::new("build-wrong-input");
-    workspace.write("config.toml", "title = \"x\"\n");
+    workspace.write("machete.toml", "title = \"x\"\n");
     workspace.write(
         "templates/index.html",
         "<html type=\"layout\"/>\n<main>y</main>\n",
@@ -390,7 +390,7 @@ fn an_input_without_templates_is_reported() {
 #[test]
 fn a_site_with_templates_but_no_pages_is_reported() {
     let workspace = Workspace::new("build-no-pages");
-    workspace.write("config.toml", "title = \"x\"\n");
+    workspace.write("machete.toml", "title = \"x\"\n");
     std::fs::create_dir_all(workspace.join("templates")).expect("creates templates");
 
     let out = workspace.join("out");
@@ -415,7 +415,7 @@ fn the_output_comes_from_the_configuration_by_default() {
     let workspace = Workspace::new("paths-config");
     minimal_site(&workspace);
     workspace.write(
-        "config.toml",
+        "machete.toml",
         "title = \"machete\"\n\n[paths]\noutput = \"sitio\"\n",
     );
 
@@ -432,7 +432,7 @@ fn a_command_line_output_beats_the_configuration() {
     let workspace = Workspace::new("paths-override");
     minimal_site(&workspace);
     workspace.write(
-        "config.toml",
+        "machete.toml",
         "title = \"machete\"\n\n[paths]\noutput = \"sitio\"\n",
     );
 
@@ -449,7 +449,7 @@ fn paths_is_reserved_and_never_becomes_a_variable() {
     let workspace = Workspace::new("paths-reserved");
     minimal_site(&workspace);
     workspace.write(
-        "config.toml",
+        "machete.toml",
         "title = \"x\"\n\n[paths]\noutput = \"public\"\n",
     );
     assert_eq!(workspace.site().globals.get("paths"), None);
@@ -470,7 +470,7 @@ fn the_output_defaults_to_public() {
 fn a_site_without_paths_still_builds_to_public() {
     let workspace = Workspace::new("paths-absent");
     minimal_site(&workspace);
-    workspace.write("config.toml", "title = \"x\"\n");
+    workspace.write("machete.toml", "title = \"x\"\n");
 
     let config = workspace.site();
     let out = config.output_dir(None);

@@ -1,7 +1,7 @@
 //! Argument parsing for the command line interface.
 //!
 //! `build` follows the Sass shape, `input:output`, where either side may be
-//! left empty and is then filled in from `config.toml`. `init` takes at most
+//! left empty and is then filled in from `machete.toml`. `init` takes at most
 //! one bare path.
 
 use clap::Parser;

@@ -56,10 +56,10 @@ cargo install --path .
 ### build takes `input:output`
 
 The shape Sass uses. Either side may be left empty, and an empty side is filled
-in from `config.toml` rather than defaulted here:
+in from `machete.toml` rather than defaulted here:
 
 ```
-machete build                 both from config.toml
+machete build                 both from machete.toml
 machete build :dist           output only
 machete build scaffold:       input only
 machete build scaffold:dist   both
@@ -80,7 +80,7 @@ machete init output/dir/new-site    the whole path, parents included
 
 ```
 .
-├── config.toml
+├── machete.toml
 └── templates/
     ├── layout.html
     ├── index.html
@@ -221,7 +221,7 @@ definition and leave nowhere to put the page.
 
 ## Variables
 
-Global variables are declared in `config.toml`. The keys at the top level are
+Global variables are declared in `machete.toml`. The keys at the top level are
 the globals, and they reach every page, layout and component:
 
 ```toml
