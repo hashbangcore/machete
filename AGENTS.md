@@ -209,7 +209,7 @@ Con ese fichero, la página `<html type="layout" name="about"/>` recibe `title` 
 
 `[data]` admite un solo nivel. Anidar más, como `[data.blog.post]`, es un error.
 
-Machete lee únicamente `[data]`, `[data.<layout>]` y `[paths]`. Cualquier otra tabla o clave del fichero es del usuario y no se inyecta, para que pueda guardar lo que necesite:
+Machete lee únicamente `[data]`, `[data.<layout>]` y `[build]`. Cualquier otra tabla o clave del fichero es del usuario y no se inyecta, para que pueda guardar lo que necesite:
 
 ```toml
 author = "hash"
@@ -221,7 +221,15 @@ run = "cargo test"
 title = "machete"
 ```
 
-Las rutas tienen valores por defecto y no necesitan declararse: `templates/` para las plantillas y `public/` para la salida.
+Las rutas viven en `[build]` y tienen valores por defecto, así que no necesitan declararse:
+
+```toml
+[build]
+public = "public"
+templates = "templates"
+```
+
+Con ese fichero, el sitio lee las plantillas de `templates/` y escribe en `public/`.
 
 ### 4.3. Scope local
 

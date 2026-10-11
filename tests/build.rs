@@ -440,7 +440,7 @@ fn the_output_comes_from_the_configuration_by_default() {
     minimal_site(&workspace);
     workspace.write(
         "machete.toml",
-        "[data]\ntitle = \"machete\"\n\n[paths]\noutput = \"sitio\"\n",
+        "[data]\ntitle = \"machete\"\n\n[build]\npublic = \"sitio\"\n",
     );
 
     let config = workspace.site();
@@ -457,7 +457,7 @@ fn a_command_line_output_beats_the_configuration() {
     minimal_site(&workspace);
     workspace.write(
         "machete.toml",
-        "[data]\ntitle = \"machete\"\n\n[paths]\noutput = \"sitio\"\n",
+        "[data]\ntitle = \"machete\"\n\n[build]\npublic = \"sitio\"\n",
     );
 
     let config = workspace.site();
@@ -474,7 +474,7 @@ fn paths_and_data_are_reserved_and_never_become_variables() {
     minimal_site(&workspace);
     workspace.write(
         "machete.toml",
-        "[data]\ntitle = \"x\"\n\n[paths]\noutput = \"public\"\n",
+        "[data]\ntitle = \"x\"\n\n[build]\noutput = \"public\"\n",
     );
 
     let config = workspace.site();
@@ -702,7 +702,7 @@ fn data_nested_a_level_too_deep_is_an_error() {
 
 #[test]
 fn any_structure_the_user_writes_beside_data_is_left_alone() {
-    // Machete reads [data], [data.*] and [paths]. Anything else belongs to the
+    // Machete reads [data], [data.*] and [build]. Anything else belongs to the
     // user and must not stop a build.
     let workspace = Workspace::new("data-other-structure");
     minimal_site(&workspace);
@@ -710,7 +710,7 @@ fn any_structure_the_user_writes_beside_data_is_left_alone() {
         "machete.toml",
         "[ci]\nrun = \"cargo test\"\nretries = 3\n\n\
          [pipeline.steps.build]\nimage = \"rust:1.99\"\n\n\
-         [data]\ntitle = \"machete\"\n\n[paths]\noutput = \"public\"\n",
+         [data]\ntitle = \"machete\"\n\n[build]\noutput = \"public\"\n",
     );
 
     let config = workspace.site();

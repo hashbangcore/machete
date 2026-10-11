@@ -243,8 +243,8 @@ every page, layout and component:
 title = "machete"
 lang = "es"
 
-[paths]
-output = "public"
+[build]
+public = "public"
 ```
 
 A layout can have its own under `[data.<layout>]`. Those inherit from `[data]`
@@ -264,7 +264,7 @@ and `lang` as `es`. A layout with no section of its own sees only `[data]`.
 
 `[data]` is one level deep. `[data.blog.post]` is an error.
 
-Machete reads `[data]`, `[data.<layout>]` and `[paths]` and nothing else. Any
+Machete reads `[data]`, `[data.<layout>]` and `[build]` and nothing else. Any
 other table is yours: it is never injected into the site, so you can keep
 whatever a pipeline needs in the same file.
 
@@ -278,8 +278,8 @@ run = "cargo test"
 title = "machete"
 ```
 
-`paths` is reserved: its keys configure where things live and never become
-variables. The output defaults to `public/` when it is not given.
+`build` is reserved: its keys name the directories and never become variables.
+Each one falls back to its default when it is not given.
 
 Local variables belong to a single component invocation, through its attributes
 or its data block. They do not change the globals.

@@ -1,5 +1,5 @@
 [data]
 title = "machete"
 
-[paths]
-output = "public"
+[build]
+public = "public"

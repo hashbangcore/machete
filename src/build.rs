@@ -303,8 +303,8 @@ const LAYOUTS: &str = "layouts";
 const CONFIG_FILE: &str = "machete.toml";
 const DEFAULT_OUTPUT: &str = "public";
 
-/// The configuration table that configures paths rather than variables.
-const PATHS: &str = "paths";
+/// The configuration table that holds the directory names.
+const BUILD: &str = "build";
 
 /// The configuration table holding the variables injected into the site.
 const DATA: &str = "data";
@@ -411,9 +411,9 @@ fn parse_config(text: &str, path: &Path) -> Result<(Parsed, Option<PathBuf>), Bu
 
     for (key, value) in table {
         match key.as_str() {
-            PATHS => {
+            BUILD => {
                 output = value
-                    .get("output")
+                    .get("public")
                     .map(|value| scalar(value.clone()))
                     .filter(|text| !text.is_empty())
                     .map(PathBuf::from);
