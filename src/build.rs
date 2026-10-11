@@ -41,7 +41,7 @@ pub fn build(config: &Config, output: &Path, force: bool) -> Result<(), BuildErr
 
     for path in pages {
         let page = build_page(config, &defs, &path)?;
-        write_page(output, &path, &page)?;
+        write_page(output, &path, &config.templates, &page)?;
     }
 
     Ok(())
@@ -145,13 +145,22 @@ fn read_page(path: &Path) -> Result<Node, BuildError> {
 }
 
 /// Writes one page, creating the directories its relative path needs.
-fn write_page(output: &Path, source: &Path, html: &str) -> Result<(), BuildError> {
-    let relative = source
-        .file_name()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("index.html"));
+fn write_page(
+    output: &Path,
+    source: &Path,
+    templates: &Path,
+    html: &str,
+) -> Result<(), BuildError> {
+    // Keep the directory a page sits in, so `templates/blog/post.html` lands in
+    // `public/blog/post.html` rather than colliding with `post.html` at the root.
+    let relative = source.strip_prefix(templates).unwrap_or(source);
 
-    let target = output.join(relative);
+    let target = if relative.as_os_str().is_empty() {
+        output.join("index.html")
+    } else {
+        output.join(relative)
+    };
+
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent)
             .map_err(|source| BuildError::Io(IoError::new("create directory", parent, source)))?;

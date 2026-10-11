@@ -18,7 +18,7 @@ You write fragments. Machete wraps them into finished pages.
 ```
 
 ```bash
-machete build -i ./scaffold -o ./public
+machete build
 ```
 
 ```html
@@ -47,8 +47,8 @@ cargo install --path .
 
 | Command | What it does |
 |---|---|
-| `machete build [in:out]` | Expands a site into finished pages |
-| `machete build -f [in:out]` | Empties the output first, so stale pages cannot survive |
+| `machete build [input:output]` | Expands a site into finished pages |
+| `machete build -f [input:output]` | Empties the output first, so stale pages cannot survive |
 | `machete init [dir]` | Writes a new site |
 | `machete init -f [dir]` | Overwrites files that already exist |
 | `machete completions <shell>` | Prints a completion script for bash, zsh, fish, elvish or powershell |
@@ -67,6 +67,9 @@ machete build scaffold:dist   both
 
 A bare path without a colon is rejected: it would not say whether it is the
 source or the destination.
+
+Machete reads the directory it is given and nothing above it, so the root is
+always the one you name, or the current directory.
 
 ### init takes one path
 
@@ -88,7 +91,13 @@ machete init output/dir/new-site    the whole path, parents included
     └── partials/         component definitions, one per file
 ```
 
-`templates/partials/header.html` defines the component `<header>`.
+Every `.html` file under `templates/` becomes a page, except `layout.html`, the
+ones in `layouts/`, and the component definitions in `partials/`. A page keeps
+the directory it sits in, so `templates/blog/post.html` is written to
+`public/blog/post.html`.
+
+`machete.toml` is what identifies the directory as a machete project. Machete
+ignores a `config.toml` that belongs to some other tool.
 
 ## Components
 
@@ -138,7 +147,8 @@ Attributes suit one or two values; a data block suits many.
 ```
 
 Every attribute other than `type` becomes a variable and is consumed, so it does
-not reach the output.
+not reach the output. Naming the same variable twice, by attribute and by data
+block, is an error.
 
 A data block is not JavaScript and is never run as such. It lives inside a
 `<script>` only so the editor highlights it and recognises its literals.
@@ -180,13 +190,13 @@ Content is rendered inside the component's scope, so it can use the values the
 component was given.
 
 A definition may declare `<content/>` once, or not at all. Passing content to a
-definition with no marker is an error, and so is declaring it twice, because
-the first would silently lose content and the second has no single destination.
+definition with no marker is an error, and so is declaring it twice, because the
+first would silently lose content and the second has no single destination.
 
 ## Layouts
 
 A page asks for a layout with `<html type="layout"/>`. Without a `name` it gets
-the default one:
+`templates/layout.html`:
 
 ```html
 <html type="layout"/>
@@ -196,11 +206,13 @@ the default one:
 </main>
 ```
 
-With a name it gets one from `templates/layouts/`:
+With a `name` it gets `templates/layouts/<name>.html`:
 
 ```html
 <html type="layout" name="article"/>
 ```
+
+Asking for a layout that does not exist is an error.
 
 The layout is an ordinary document with a `<content/>` where the page goes.
 
@@ -240,6 +252,9 @@ or its data block. They do not change the globals.
 When both carry the same name, the local one wins. The global keeps its value
 for the rest of the document.
 
+A variable with no value is an error. The build stops rather than leaving
+`{title}` in the page.
+
 ## Naming
 
 A component's name is its file name. Machete does not check that the name is a
@@ -277,15 +292,30 @@ or a `<style>` belongs to that language, not to Machete. A `<title>` or a
 `<textarea>` also holds raw text, but its braces are prose, so they resolve
 like any other.
 
+## What fails a build
+
+Machete stops rather than writing a page half-rendered.
+
+- A component invoked with no definition
+- A layout asked for by name that does not exist
+- A variable with no value
+- The same variable given twice to one component
+- Content passed to a definition with no `<content/>`
+- A definition declaring `<content/>` more than once
+- A `<script type="data">` outside a component
+- A tag left open, or written self-closing when the HTML standard says it is not
+- An `input:output` with no colon, or with more than one
+- An input directory with no `templates/` inside it
+
 ## Development
 
 ```
-cargo test          # 123 tests
+cargo test              # 124 tests
 cargo clippy --all-targets
 cargo fmt
-just build          # build the scaffold into ./outputs/build-example
-just init           # write a new site into ./outputs/init-example
-just install        # cargo install --path .
+just build              # build the scaffold into ./outputs/build-example
+just init               # write a new site into ./outputs/init-example
+just install            # cargo install --path .
 ```
 
 ## Not in scope

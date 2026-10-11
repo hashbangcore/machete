@@ -477,3 +477,26 @@ fn a_site_without_paths_still_builds_to_public() {
     build(&config, &out, false).expect("the build succeeds");
     assert!(out.join("index.html").exists());
 }
+
+#[test]
+fn a_page_keeps_the_directory_it_sits_in() {
+    // `templates/blog/post.html` has to land in `public/blog/post.html`, or it
+    // would overwrite `post.html` written from the root of templates/.
+    let workspace = Workspace::new("paths-nested-page");
+    minimal_site(&workspace);
+    workspace.write(
+        "templates/post.html",
+        "<html type=\"layout\"/>\n<main>raiz</main>\n",
+    );
+    workspace.write(
+        "templates/blog/post.html",
+        "<html type=\"layout\"/>\n<main>blog</main>\n",
+    );
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out, false).expect("the build succeeds");
+
+    assert!(out.join("post.html").exists(), "root page missing");
+    assert!(out.join("blog/post.html").exists(), "nested page missing");
+    assert!(workspace.read("out/blog/post.html").contains("blog"));
+}
