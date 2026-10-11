@@ -1,12 +1,11 @@
 //! Replaces `{variable}` references with their values.
 //!
-//! Substitution runs over text nodes and attribute values. It deliberately skips
-//! raw text elements, because braces inside a `<script>` or a `<style>` belong
-//! to that language rather than to Machete.
+//! Substitution runs over text nodes, attribute values and raw text prose.
+//! It skips `<script>` and `<style>`, where braces belong to another language.
 
 use super::scope::Scope;
 use crate::error::SubstError;
-use crate::node::Node;
+use crate::node::{Node, is_code};
 
 /// Replaces every `{name}` in the tree with the value found in `scope`.
 ///
@@ -35,7 +34,16 @@ pub fn substitute(node: &mut Node, scope: &Scope) -> Result<(), SubstError> {
             }
         }
 
-        Node::RawText { .. } | Node::Comment(_) | Node::Doctype(_) => {}
+        Node::RawText { tag, content } => {
+            // A `{` inside a script or a style belongs to that language.
+            // `textarea` and `title` are also raw text but hold prose, so
+            // their braces are Machete's and get substituted.
+            if !is_code(tag) {
+                *content = substitute_text(content, scope)?;
+            }
+        }
+
+        Node::Comment(_) | Node::Doctype(_) => {}
     }
 
     Ok(())

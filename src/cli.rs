@@ -4,10 +4,12 @@
 //! handler. Both live here rather than in `main.rs` so the argument parsing can
 //! be exercised from tests without spawning a process.
 
+use crate::build::build;
+use crate::config::Config;
+use crate::error::BuildError;
+use crate::scaffold::write;
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
-use std::fmt;
-use std::io;
 use std::path::PathBuf;
 
 /// Static site generator that composes HTML from components, layouts and
@@ -22,6 +24,9 @@ pub struct Cli {
 /// The commands `machete` accepts.
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Expand a site's templates into finished HTML pages.
+    Build(BuildArgs),
+
     /// Create the directory layout and config file for a new site.
     Init(InitArgs),
 
@@ -29,15 +34,31 @@ pub enum Command {
     Completions(CompletionsArgs),
 }
 
+/// Arguments for `machete build`.
+#[derive(Debug, Args)]
+pub struct BuildArgs {
+    /// Site directory holding `config.toml` and `templates/`.
+    #[arg(short, long, value_name = "DIR")]
+    pub input: PathBuf,
+
+    /// Directory to write the generated pages into.
+    #[arg(short, long, value_name = "DIR")]
+    pub output: PathBuf,
+
+    /// Empty the output directory before writing.
+    #[arg(short, long)]
+    pub force: bool,
+}
+
 /// Arguments for `machete init`.
 #[derive(Debug, Args)]
 pub struct InitArgs {
-    /// Directory to create the site in. Defaults to the current one.
-    #[arg(value_name = "PATH")]
-    pub path: Option<PathBuf>,
+    /// Directory to create the new site in.
+    #[arg(short, long, value_name = "DIR")]
+    pub output: PathBuf,
 
     /// Overwrite files that already exist instead of leaving them untouched.
-    #[arg(long, short)]
+    #[arg(short, long)]
     pub force: bool,
 }
 
@@ -49,76 +70,21 @@ pub struct CompletionsArgs {
     pub shell: Shell,
 }
 
-/// A failure reported by a command handler.
-#[derive(Debug)]
-pub enum CliError {
-    /// The handler ran into a problem writing to a file or directory.
-    Io {
-        action: String,
-        path: PathBuf,
-        source: io::Error,
-    },
-    /// The handler is not written yet.
-    NotImplemented { command: &'static str },
-    /// A completion script could not be written.
-    Completions(io::Error),
-}
-
-impl fmt::Display for CliError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Io {
-                action,
-                path,
-                source,
-            } => {
-                write!(f, "failed to {action} {}: {source}", path.display())
-            }
-            Self::Completions(source) => write!(f, "failed to write completions: {source}"),
-            Self::NotImplemented { command } => {
-                write!(f, "'{command}' is not implemented yet")
-            }
-        }
-    }
-}
-
-impl std::error::Error for CliError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Io { source, .. } => Some(source),
-            Self::Completions(source) => Some(source),
-            Self::NotImplemented { .. } => None,
-        }
-    }
-}
-
-impl CliError {
-    /// Wraps an I/O failure together with what was being attempted and where.
-    pub fn io(action: impl Into<String>, path: impl Into<PathBuf>, source: io::Error) -> Self {
-        Self::Io {
-            action: action.into(),
-            path: path.into(),
-            source,
-        }
-    }
-}
-
 /// Parses the arguments and runs the command they select.
-pub fn run(cli: Cli) -> Result<(), CliError> {
+pub fn run(cli: Cli) -> Result<(), BuildError> {
     match cli.command {
-        Command::Init(args) => init(args),
+        Command::Build(args) => {
+            let config = Config::load(&args.input)?;
+            build(&config, &args.output, args.force)
+        }
+        Command::Init(args) => write(&args.output, args.force),
         Command::Completions(args) => completions(args),
     }
 }
 
-/// Writes the default project layout and config file for a new site.
-fn init(_args: InitArgs) -> Result<(), CliError> {
-    Err(CliError::NotImplemented { command: "init" })
-}
-
 /// Writes a completion script for the requested shell to stdout.
-fn completions(args: CompletionsArgs) -> Result<(), CliError> {
+fn completions(args: CompletionsArgs) -> Result<(), BuildError> {
     let mut command = Cli::command();
-    clap_complete::generate(args.shell, &mut command, "machete", &mut io::stdout());
+    clap_complete::generate(args.shell, &mut command, "machete", &mut std::io::stdout());
     Ok(())
 }

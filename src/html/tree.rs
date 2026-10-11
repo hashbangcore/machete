@@ -79,8 +79,10 @@ impl Builder {
 
 /// Builds a document tree from `tokens`.
 ///
-/// Applies Machete's self-closing rule: `<content/>` closes itself, and so do
-/// the HTML void elements. Every other element requires an explicit closing tag.
+/// Applies Machete's self-closing rule: the void elements and the three
+/// constructions of Machete (`<content/>`, `type="component"` and
+/// `type="layout"`) close themselves. Every other element requires an explicit
+/// closing tag, so `<div/>` is an error.
 pub fn build(tokens: Vec<Token>) -> Result<Node, TreeError> {
     let mut builder = Builder::new();
 
@@ -115,7 +117,7 @@ pub fn build(tokens: Vec<Token>) -> Result<Node, TreeError> {
                     children: Vec::new(),
                 };
 
-                if self_closing && !element.is_content_marker() && !element.is_void() {
+                if self_closing && !element.accepts_self_closing() {
                     return Err(TreeError::UnclosedTag {
                         name: element.name,
                         offset,

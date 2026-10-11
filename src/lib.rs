@@ -5,36 +5,36 @@
 //!
 //! 1. [`html::tokenize`] splits source into tokens.
 //! 2. [`html::build`] assembles those tokens into a document tree.
-//! 3. [`compose::expand`] replaces component invocations with their definitions.
-//! 4. [`vars::substitute`] resolves `{variable}` references.
-//! 5. [`html::render`] writes the tree back out as HTML.
+//! 3. [`compose::apply_layout`] inserts the page into the layout it asked for.
+//! 4. [`compose::expand`] replaces component invocations with their definitions.
+//! 5. [`vars::substitute`] resolves `{variable}` references.
+//! 6. [`html::render`] writes the tree back out as HTML.
 //!
-//! No stage reads from disk or writes to it, so each one is testable on its own.
-//! [`html::parse`] combines the first two for callers that do not need the
-//! intermediate tokens.
+//! Only [`build`] and [`config`] touch the filesystem. Everything else is a
+//! function from input to output, so each stage is testable on its own.
 //!
-//! # Layout
+//! # Output
+//!
+//! The HTML written to `public/` is plain markup. None of Machete's own
+//! constructs reach it: no `<content/>`, no `type="component"`, no
+//! `type="layout"`, no `<script type="data">`.
+//!
+//! # Layout of the crate
 //!
 //! - [`node`] and [`error`] sit at the top level because every layer uses them:
 //!   they are the shared vocabulary rather than part of any one layer.
 //! - [`html`] parses and renders documents.
 //! - [`vars`] resolves variable values.
-//! - [`compose`] combines components.
-//! - [`cli`] defines the command line interface.
+//! - [`compose`] combines components and applies layouts.
 
+pub mod build;
 pub mod cli;
 pub mod compose;
+pub mod config;
 pub mod error;
 pub mod html;
 pub mod node;
+pub mod scaffold;
 pub mod vars;
 
-pub use cli::{Cli, CliError, Command, run};
-
-pub use compose::{Defs, expand};
-pub use error::{
-    ExpandError, ParseError, ScopeError, ScriptError, SubstError, TokenizeError, TreeError,
-};
-pub use html::{parse, render, tokenize};
-pub use node::{Attr, Element, Node};
-pub use vars::{Bindings, Scope, substitute};
+pub use error::BuildError;

@@ -7,6 +7,43 @@
 /// Tag name used for the content marker, `<content/>`.
 pub const CONTENT: &str = "content";
 
+/// `type` value marking a tag as a component invocation.
+pub const COMPONENT_TYPE: &str = "component";
+
+/// `type` value on a `<script>` that declares variables instead of code.
+pub const DATA_TYPE: &str = "data";
+
+/// `type` value on an `<html>` tag that requests a layout.
+pub const LAYOUT_TYPE: &str = "layout";
+
+/// Reports whether a `type` value is one of Machete's directives.
+///
+/// These three constructs are self-closing. Every other tag follows the HTML
+/// spec, where a trailing slash on a non-void element is ignored and the error
+/// is that the element stays open.
+pub fn is_directive(value: Option<&str>) -> bool {
+    matches!(value, Some(COMPONENT_TYPE) | Some(LAYOUT_TYPE))
+}
+
+/// Elements whose content is parsed as raw text.
+///
+/// Inside these, a `<` does not start a tag, so the tokenizer captures their
+/// contents verbatim. This is about markup only: whether their braces belong to
+/// Machete is decided separately by [`is_code`].
+pub const RAWTEXT_ELEMENTS: [&str; 4] = ["script", "style", "textarea", "title"];
+
+/// Elements whose braces belong to another language.
+///
+/// A `{` inside a `<script>` or a `<style>` is JavaScript or CSS, not a
+/// variable reference, so substitution skips them. `textarea` and `title` are
+/// also raw text, but they hold plain prose, so their braces are Machete's.
+pub const CODE_ELEMENTS: [&str; 2] = ["script", "style"];
+
+/// Reports whether a tag's contents are code rather than prose.
+pub fn is_code(tag: &str) -> bool {
+    CODE_ELEMENTS.contains(&tag)
+}
+
 /// The fixed set of HTML void elements.
 ///
 /// Void elements have no closing tag and can never have children. A trailing
@@ -76,6 +113,35 @@ impl Element {
         VOID_ELEMENTS.contains(&self.name.as_str())
     }
 
+    /// Reports whether a self-closing slash is allowed on this element.
+    ///
+    /// True for the void elements and for Machete's own constructions: the
+    /// `<content/>` marker, a `type="component"` invocation and a
+    /// `type="layout"` directive. The tag name is irrelevant, so an invocation
+    /// of `<002-mmenu/>` self-closes the same way `<header/>` does.
+    pub fn accepts_self_closing(&self) -> bool {
+        self.is_void() || self.is_content_marker() || is_directive(self.attr("type"))
+    }
+
+    /// Reports whether this element is a `<script type="data">` block, the
+    /// construct that declares variables rather than carrying code.
+    pub fn is_data_script(&self) -> bool {
+        self.name == "script" && self.attr("type") == Some(DATA_TYPE)
+    }
+
+    /// Reports whether this element is an `<html type="layout">` directive.
+    pub fn is_layout_directive(&self) -> bool {
+        self.name == "html" && self.attr("type") == Some(LAYOUT_TYPE)
+    }
+
+    /// Reports whether this element is a `type="component"` invocation.
+    ///
+    /// A `<script type="data">` is not one: it declares variables for the
+    /// invocation that contains it.
+    pub fn is_invocation(&self) -> bool {
+        !self.is_data_script() && self.attr("type") == Some(COMPONENT_TYPE)
+    }
+
     /// Reports whether this element is the content marker, i.e. a bare
     /// `<content/>` with no attributes and no children.
     ///
@@ -124,10 +190,18 @@ impl Node {
         }
     }
 
-    /// Returns a mutable handle to this node's children.
+    /// Returns a handle to this node's children.
     ///
     /// Yields `None` for leaf nodes, which have no children to hand out.
     pub fn children_mut(&mut self) -> Option<&mut Vec<Node>> {
+        match self {
+            Node::Document(children) | Node::Element(Element { children, .. }) => Some(children),
+            _ => None,
+        }
+    }
+
+    /// Returns this node's children, or `None` for a leaf node.
+    pub fn child_list(&self) -> Option<&Vec<Node>> {
         match self {
             Node::Document(children) | Node::Element(Element { children, .. }) => Some(children),
             _ => None,

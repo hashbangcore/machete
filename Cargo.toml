@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 clap = { version = "4.6.7", features = ["derive", "env"] }
 clap_complete = "4.6.11"
+toml = "1.1.8"

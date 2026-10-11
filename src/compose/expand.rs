@@ -2,16 +2,14 @@
 //!
 //! An invocation is any tag carrying `type="component"`. The tag name selects a
 //! definition, and the invocation's attributes plus its
-//! `<script type="component">` block supply the variable values that the
-//! definition refers to with `{name}`.
+//! `<script type="data">` block supply the variable values that the definition
+//! refers to with `{name}`.
 
+use super::{find_slots, replace_marker, strip_markers};
 use crate::error::{ExpandError, ScopeError, ScriptError, SubstError};
 use crate::node::{Element, Node};
-use crate::vars::{Bindings, Scope, parse_bindings, substitute};
+use crate::vars::{Bindings, Scope, parse_bindings, substitute, substitute_text};
 use std::collections::HashMap;
-
-/// The attribute value that marks a tag as a component invocation.
-pub const COMPONENT_TYPE: &str = "component";
 
 /// Component definitions, keyed by the tag name that invokes them.
 pub type Defs = HashMap<String, Node>;
@@ -19,7 +17,8 @@ pub type Defs = HashMap<String, Node>;
 /// Expands every invocation found anywhere in `node`.
 ///
 /// Recurses into definitions, so a component may invoke other components. The
-/// returned tree has no invocations left in it.
+/// returned tree carries no invocations and no content markers: everything left
+/// is plain markup ready to be rendered.
 pub fn expand(node: &Node, defs: &Defs, globals: &Scope) -> Result<Node, ExpandError> {
     expand_node(node, defs, globals)
 }
@@ -27,7 +26,16 @@ pub fn expand(node: &Node, defs: &Defs, globals: &Scope) -> Result<Node, ExpandE
 /// Expands a single node and, in turn, its children.
 fn expand_node(node: &Node, defs: &Defs, outer: &Scope) -> Result<Node, ExpandError> {
     match node {
-        Node::Element(element) if is_invocation(element) => expand_invocation(element, defs, outer),
+        Node::Element(element) if element.is_invocation() => {
+            expand_invocation(element, defs, outer)
+        }
+
+        // A data block is only meaningful inside an invocation. Reaching one
+        // here means it was written somewhere it cannot be consumed, and it
+        // would otherwise pass straight through into the output.
+        Node::Element(element) if element.is_data_script() => {
+            Err(ExpandError::LooseDataScript { offset: 0 })
+        }
 
         Node::Element(element) => {
             let mut element = element.clone();
@@ -53,25 +61,15 @@ fn expand_children(
         .collect()
 }
 
-/// Reports whether a tag is a component invocation.
-///
-/// The `<script type="component">` block is not an invocation: it is a variable
-/// declaration, and it is handled while reading the invocation's values.
-fn is_invocation(element: &Element) -> bool {
-    element.name != "script" && element.attr("type") == Some(COMPONENT_TYPE)
-}
-
 /// Expands one invocation into a copy of its definition.
 ///
-/// The order matters: read the values, expand the definition's own invocations
-/// first, then substitute variables, and only then insert the content, so that
-/// the content is rendered inside the component's scope.
+/// The order matters. Attribute values are resolved against the enclosing
+/// scope first, so a value written as a variable reference is passed on
+/// resolved. Then the definition's own invocations are expanded, the content is
+/// placed, and only then are variables substituted, so that inserted content is
+/// rendered inside the component's scope.
 fn expand_invocation(element: &Element, defs: &Defs, outer: &Scope) -> Result<Node, ExpandError> {
     let name = element.name.clone();
-
-    if name.is_empty() {
-        return Err(ExpandError::EmptyComponentName { offset: 0 });
-    }
 
     let Some(definition) = defs.get(&name) else {
         return Err(ExpandError::UnknownComponent { name });
@@ -79,28 +77,34 @@ fn expand_invocation(element: &Element, defs: &Defs, outer: &Scope) -> Result<No
 
     let (from_attrs, from_script, content) = read_invocation(element)?;
 
-    let locals = Scope::merge(&[from_attrs, from_script]).map_err(|error| nested(&name, error))?;
-    let scope = outer.child(locals);
-
-    let mut expanded =
-        expand_node(definition, defs, &scope).map_err(|error| nested(&name, error))?;
-
-    substitute(&mut expanded, &scope).map_err(|error| nested(&name, error))?;
-
-    if content.is_empty() {
-        return Ok(expanded);
+    let mut from_attrs = from_attrs;
+    for (name, value) in std::mem::take(&mut from_attrs) {
+        let resolved = substitute_text(&value, outer)
+            .map_err(|e| nested(&element.name, ExpandError::Subst(e)))?;
+        from_attrs.insert(name, resolved);
     }
 
-    insert_content(&mut expanded, content, &name)?;
+    let locals = Scope::merge(&[from_attrs, from_script]).map_err(|e| nested(&name, e))?;
+    let scope = outer.child(locals);
+
+    let mut expanded = expand_node(definition, defs, &scope).map_err(|e| nested(&name, e))?;
+
+    if content.is_empty() {
+        strip_markers(&mut expanded);
+    } else {
+        insert_content(&mut expanded, content, &name)?;
+    }
+
+    substitute(&mut expanded, &scope).map_err(|e| nested(&name, e))?;
 
     Ok(expanded)
 }
 
 /// Splits an invocation's contents into three groups: values from attributes,
-/// values from the script block, and the HTML to insert at `<content/>`.
+/// values from the data block, and the HTML to insert at `<content/>`.
 ///
 /// Every attribute other than `type` becomes a variable and is consumed, so it
-/// does not reach the output. At most one component script is allowed, since a
+/// does not reach the output. At most one data block is allowed, since a
 /// second one would silently discard the first.
 fn read_invocation(element: &Element) -> Result<(Bindings, Bindings, Vec<Node>), ExpandError> {
     let mut from_attrs = Bindings::new();
@@ -119,39 +123,40 @@ fn read_invocation(element: &Element) -> Result<(Bindings, Bindings, Vec<Node>),
 
     for child in &element.children {
         match child {
-            Node::Element(Element { name, children, .. })
-                if name == "script" && children.iter().any(is_component_script_body) =>
-            {
+            Node::Element(inner) if inner.is_data_script() => {
                 if from_script.is_some() {
-                    return Err(ExpandError::DuplicateComponentScript { name: name.clone() });
+                    return Err(ExpandError::DuplicateDataScript {
+                        name: element.name.clone(),
+                    });
                 }
-                let body = children.iter().find_map(|c| match c {
-                    Node::RawText { content, .. } => Some(content.clone()),
-                    _ => None,
-                });
-                let Some(body) = body else {
-                    return Err(ExpandError::DuplicateComponentScript { name: name.clone() });
-                };
+                let body = inner
+                    .children
+                    .iter()
+                    .find_map(|c| match c {
+                        Node::RawText { content, .. } => Some(content.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
                 from_script = Some(parse_bindings(&body).map_err(|e| nested(&element.name, e))?);
             }
 
-            other => content.push(other.clone()),
+            other => {
+                // Indentation between the invocation and its data block is
+                // formatting, not content. Counting it would make a component
+                // look like it received something when it received nothing.
+                let is_blank = matches!(other, Node::Text(text) if text.trim().is_empty());
+                if !is_blank {
+                    content.push(other.clone());
+                }
+            }
         }
     }
 
     Ok((from_attrs, from_script.unwrap_or_default(), content))
 }
 
-/// Reports whether a script body is the component declaration form.
-///
-/// A plain `<script>` carries real JavaScript and must be preserved verbatim,
-/// so only `<script type="component">` is read as variable declarations.
-fn is_component_script_body(node: &Node) -> bool {
-    node.as_element()
-        .is_some_and(|e| e.attr("type") == Some(COMPONENT_TYPE))
-}
-
-/// Places `content` into the definition's `<content/>` marker.
+/// Places `content` at the definition's `<content/>` marker and removes the
+/// marker, so it never reaches the output.
 ///
 /// Fails when the definition has no marker, because the content would be lost,
 /// and when it has more than one, because the target would be ambiguous.
@@ -164,10 +169,7 @@ fn insert_content(node: &mut Node, content: Vec<Node>, component: &str) -> Resul
         }),
 
         1 => {
-            let target = node_at(node, &slots[0]).expect("path came from this tree");
-            if let Some(element) = target.as_element_mut() {
-                element.children = content;
-            }
+            replace_marker(node, &slots[0], content);
             Ok(())
         }
 
@@ -175,43 +177,6 @@ fn insert_content(node: &mut Node, content: Vec<Node>, component: &str) -> Resul
             name: component.to_string(),
         }),
     }
-}
-
-/// Collects the path to every `<content/>` marker in the tree.
-///
-/// Each path is a sequence of child indices from the root, so a marker can be
-/// located again in a mutable tree.
-fn find_slots(node: &Node) -> Vec<Vec<usize>> {
-    let mut found = Vec::new();
-    collect_slots(node, &mut Vec::new(), &mut found);
-    found
-}
-
-/// Walks the tree recording the current path and storing it at each marker.
-fn collect_slots(node: &Node, path: &mut Vec<usize>, out: &mut Vec<Vec<usize>>) {
-    let children = match node {
-        Node::Document(children) | Node::Element(Element { children, .. }) => children,
-        _ => return,
-    };
-
-    for (index, child) in children.iter().enumerate() {
-        path.push(index);
-        if child.as_element().is_some_and(Element::is_content_marker) {
-            out.push(path.clone());
-        } else {
-            collect_slots(child, path, out);
-        }
-        path.pop();
-    }
-}
-
-/// Follows a path of child indices down to a node.
-fn node_at<'a>(node: &'a mut Node, path: &[usize]) -> Option<&'a mut Node> {
-    let mut current = node;
-    for index in path {
-        current = current.children_mut()?.get_mut(*index)?;
-    }
-    Some(current)
 }
 
 /// Wraps an error with the component it came from.

@@ -56,7 +56,15 @@ El atributo `type="component"` identifica un elemento que Machete debe procesar 
 <header type="component"></header>
 ```
 
-El nombre de la etiqueta identifica el componente. En este caso, `header` corresponde a una definición ubicada en el directorio `partials/`.
+El nombre de la etiqueta identifica el componente. Ese nombre corresponde al fichero homónimo en el directorio `partials/`:
+
+```
+<header type="component"></header>   →   partials/header.html
+<aside   type="component"></aside>   →   partials/aside.html
+<figure  type="component"></figure>  →   partials/figure.html
+```
+
+Cada fichero contiene un solo componente. Machete no valida los nombres: si el autor elige un nombre que no es una etiqueta HTML válida, es una decisión suya y un linter puede avisar. Machete solo informa cuando el componente invocado no existe.
 
 ### 3.2. Definición de un componente
 
@@ -86,7 +94,7 @@ Una etiqueta con `type="component"` fuera del directorio de definiciones represe
 
 ```
 <header type="component">
-  <script type="component">
+  <script type="data">
     const title = "Mi sitio";
     const description = "Página personal";
   </script>
@@ -102,25 +110,61 @@ Machete busca la definición correspondiente en `partials/`, resuelve las variab
 
 Si no existe la definición del componente solicitado, debe producir un error.
 
+Una invocación sin contenido puede escribirse también auto-cerrada:
+
+```
+<header type="component" title="Mi sitio"/>
+```
+
 ### 3.4. Formas de proporcionar variables
 
 Un componente puede recibir variables de dos maneras:
 
 Mediante atributos:
 
-Los atributos de la invocación proporcionan valores al componente. El mecanismo exacto para asociar cada atributo con una variable debe mantener el nombre de la variable como referencia.
+Los atributos de la invocación proporcionan valores al componente. El nombre del atributo es el nombre de la variable. Todos los atributos que no sean `type` se consumen como variables y no aparecen en el HTML final.
 
 Mediante el componente especial `script`:
 
-`<script type="component">` permite definir variables para la invocación. En este contexto, su contenido declara valores para Machete; no significa que Machete deba ejecutar JavaScript arbitrario.
+`<script type="data">` permite definir variables para la invocación. En este contexto, su contenido declara valores para Machete; no significa que Machete deba ejecutar JavaScript arbitrario.
+
+```
+<aside type="component">
+  <script type="data">
+    const title = "Sobre este ejercicio";
+    const link = "https://example.com";
+  </script>
+</aside>
+```
+
+El bloque no es JavaScript. Machete solo aprovecha el resaltado de sintaxis y los literales que el editor ya reconoce. Las palabras clave `const`, `let` y `var` son opcionales, y `clave = valor` es tan válido como `const clave = valor`. Todos los valores son cadenas de texto: no hay inferencia de tipos, y `true` es el texto `"true"`.
+
+El bloque solo puede aparecer dentro de un componente. Un `<script type="data">` suelto es un error.
 
 Los nombres y valores declarados se utilizan para resolver las variables de la definición del componente.
 
 ### 3.5. Inserción de contenido
 
-`<content/>` marca el lugar donde se inserta el contenido HTML proporcionado al invocar un componente.
+`<content/>` marca el lugar donde se inserta el contenido HTML proporcionado al invocar un componente. El marcador desaparece de la salida: en su lugar queda el contenido recibido.
 
-Si la definición no contiene `<content/>`, no existe un punto de inserción para ese contenido. Para evitar perder contenido silenciosamente, la opción recomendada es generar un error cuando se proporcione contenido y la definición no tenga el marcador.
+```
+<!-- partials/figure.html -->
+<figure class="note">
+  <content/>
+</figure>
+```
+
+```
+<figure type="component">
+  <p>Este texto entra por el marcador.</p>
+</figure>
+```
+
+Si la definición no contiene `<content/>`, no existe un punto de inserción para ese contenido. Para evitar perder contenido silenciosamente, se genera un error cuando se proporcione contenido y la definición no tenga el marcador.
+
+Una definición con `<content/>` puede invocarse sin contenido. El marcador se elimina igualmente y queda un elemento vacío.
+
+Si una definición declara `<content/>` más de una vez, se genera un error: el destino sería ambiguo.
 
 ## 4. Variables
 
@@ -141,7 +185,13 @@ No se requieren etiquetas especiales para marcar las referencias a variables den
 
 Las variables globales se definen en `config.toml` y están disponibles para las páginas, los layouts y los componentes.
 
-El formato exacto para declararlas en el fichero de configuración todavía debe definirse.
+Las claves de primer nivel del fichero son globales:
+
+```toml
+title = "machete"
+```
+
+Las rutas tienen valores por defecto y no necesitan declararse: `templates/` para las plantillas y `public/` para la salida.
 
 ### 4.3. Scope local
 
@@ -164,26 +214,27 @@ Ejemplo conceptual:
 
 ### 5.1. Layout predeterminado
 
-Si existe `layout.html` y la página de entrada no define una etiqueta `<html>`, Machete aplica el layout automáticamente.
+Una página declara que necesita un layout mediante `<html type="layout"/>`. La directiva no se renderiza: se extrae de la página y el resto del contenido es lo que se entrega al layout.
 
 Por ejemplo, una página de entrada puede contener únicamente:
 
 ```
-<h1>Mi sitio</h1>
-<p>Contenido principal.</p>
+<html type="layout"/>
+
+<main>
+  <h1>Mi sitio</h1>
+  <p>Contenido principal.</p>
+</main>
 ```
 
-Y `layout.html` puede contener la estructura general del documento:
+Y `layout.html` contiene la estructura general del documento:
 
 ```
 <!DOCTYPE html>
 <html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <title>{title}</title>
-</head>
+<head type="component" title="{title}"/>
+
 <body>
-  <header type="component"></header>
   <main>
     <content/>
   </main>
@@ -193,11 +244,27 @@ Y `layout.html` puede contener la estructura general del documento:
 
 El contenido de la página se inserta en `<content/>`.
 
-Si la página ya define su propia etiqueta `<html>`, no se aplica automáticamente el layout predeterminado.
+La página se inserta en el layout **antes** de expandir los componentes, porque el marcador puede estar dentro de una invocación:
+
+```
+<body>
+  <main type="component">
+    <content/>
+  </main>
+</body>
+```
+
+Si se expandiera antes, el marcador desaparecería dentro de la definición y no habría dónde insertar la página.
 
 ### 5.2. Layouts adicionales
 
-Cuando se necesitan varios layouts, se utiliza el directorio `layouts/`.
+Una página solicita otro layout añadiendo `name`:
+
+```
+<html type="layout" name="article"/>
+```
+
+Ese layout se busca en el directorio `layouts/`:
 
 ```
 templates/
@@ -206,8 +273,6 @@ templates/
     ├── article.html
     └── gallery.html
 ```
-
-La selección explícita de un layout se realizará mediante una declaración en la página. La sintaxis definitiva de esa declaración aún está pendiente.
 
 Si se solicita un layout que no existe, Machete debe producir un error.
 
@@ -225,32 +290,45 @@ El procesamiento debe respetar estas reglas:
 
 El orden exacto de algunas operaciones internas queda sujeto a la implementación, siempre que se respeten las reglas de composición y alcance.
 
+### 6.1. La salida es HTML estándar
+
+Las plantillas son la entrada y contienen sintaxis de Machete. Los ficheros generados en `public/` son la salida y **no contienen ninguna construcción de Machete**:
+
+- Ni `<content/>`, ni `type="component"`, ni `type="layout"`, ni `<script type="data">`.
+
+El resultado debe poder servirse tal cual, sin transformaciones posteriores.
+
 ## 7. Errores que deben detectarse
 
 Machete debería informar, al menos, de los siguientes errores:
 
 - Componente invocado sin definición correspondiente.
 - Layout solicitado que no existe.
-- Contenido proporcionado a un componente sin marcador `<content/>`, si se adopta la regla recomendada.
-- Variables sin resolver, si se decide que las referencias inexistentes son errores en lugar de conservarse literalmente.
+- Contenido proporcionado a un componente sin marcador `<content/>`.
+- `<content/>` declarado más de una vez en la misma definición.
+- Variable duplicada en una invocación, recibida por atributo y por `script`.
+- `<script type="data">` fuera de un componente.
+- Variables sin resolver.
+- Atributos o marcadores mal formados.
 
-El último comportamiento todavía debe decidirse.
+Una referencia `{variable}` sin valor es un error: el build no compila. No se conserva literalmente.
 
 ## 8. Límites y responsabilidades
 
 Machete compone HTML. No ejecuta JavaScript ni pretende sustituir herramientas especializadas.
 
-Por tanto, el código JavaScript ordinario debe conservarse para que otras herramientas lo procesen. El `<script type="component">` es una construcción especial de Machete para declarar variables, no un mecanismo de ejecución de código.
+Por tanto, el código JavaScript ordinario debe conservarse para que otras herramientas lo procesen. El `<script type="data">` es una construcción especial de Machete para declarar variables, no un mecanismo de ejecución de código. Su gramática es `clave = valor`; solo se aprovechan el resaltado de sintaxis y los literales que el editor reconoce.
+
+### 8.1. Autocierre
+
+`<content/>`, `type="component"` y `type="layout"` se autocierran, igual que los elementos void de HTML. El resto de las etiquetas sigue el estándar: `<div/>` no cierra nada y es un error.
+
+### 8.2. Nombres de componente
+
+El nombre de un componente es el nombre del fichero que lo contiene, sin extensión. Machete no valida esos nombres ni los de la etiqueta que lo invoca. Si el autor elige un nombre que HTML no considera válido, es una decisión suya y un linter puede avisar. Machete solo informa cuando el componente invocado no existe.
 
 ## 9. Decisiones pendientes
 
-La base conceptual está definida, pero faltan algunas decisiones para convertirla en una especificación implementable:
-
-- La estructura exacta de `config.toml`, incluidas las variables globales.
-- La sintaxis definitiva para seleccionar un layout distinto del predeterminado.
-- La gramática exacta de las declaraciones dentro de `<script type="component">`.
-- La correspondencia entre atributos de invocación y variables.
-- El comportamiento ante variables inexistentes.
-- La política frente a atributos o marcadores mal formados.
+- El comportamiento ante variables inexistentes dentro del contenido insertado en un componente: si ese contenido ve las variables locales del componente o solo las globales.
 
 Estas cuestiones deben cerrarse antes de implementar el parser, para evitar que la implementación termine imponiendo decisiones de diseño que todavía no se han tomado.
