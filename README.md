@@ -45,25 +45,36 @@ cargo install --path .
 
 ## Commands
 
-Paths are given either as bare arguments or as flags, never both. Mixing the
-two is an error rather than a silent preference, because neither reading is
-obviously the one that was meant. Whatever is left unset falls back to
-`config.toml`.
-
-```
-machete build                 both paths from config.toml
-machete build public          output only
-machete build . public        input and output
-machete build -i . -o public  the flags
-```
-
 | Command | What it does |
 |---|---|
-| `machete build -i <site> -o <out>` | Expands a site into finished pages |
-| `machete build -i <site> -o <out> -f` | Empties the output first, so stale pages cannot survive |
-| `machete init <dir>` | Writes a new site |
-| `machete init -o <dir> -f` | Overwrites files that already exist |
+| `machete build [in:out]` | Expands a site into finished pages |
+| `machete build -f [in:out]` | Empties the output first, so stale pages cannot survive |
+| `machete init [dir]` | Writes a new site |
+| `machete init -f [dir]` | Overwrites files that already exist |
 | `machete completions <shell>` | Prints a completion script for bash, zsh, fish, elvish or powershell |
+
+### build takes `input:output`
+
+The shape Sass uses. Either side may be left empty, and an empty side is filled
+in from `config.toml` rather than defaulted here:
+
+```
+machete build                 both from config.toml
+machete build :dist           output only
+machete build scaffold:       input only
+machete build scaffold:dist   both
+```
+
+A bare path without a colon is rejected: it would not say whether it is the
+source or the destination.
+
+### init takes one path
+
+```
+machete init                        the current directory
+machete init new-site               new-site/
+machete init output/dir/new-site    the whole path, parents included
+```
 
 ## Site layout
 
@@ -269,11 +280,12 @@ like any other.
 ## Development
 
 ```
-cargo test          # 126 tests
+cargo test          # 123 tests
 cargo clippy --all-targets
 cargo fmt
 just build          # build the scaffold into ./outputs/build-example
 just init           # write a new site into ./outputs/init-example
+just install        # cargo install --path .
 ```
 
 ## Not in scope

@@ -142,13 +142,8 @@ pub enum BuildError {
     NotASite { root: PathBuf, expected: PathBuf },
     /// The site has templates but no pages to build.
     NoPages { templates: PathBuf },
-    /// More bare paths were given than the command accepts.
-    TooManyPaths { command: &'static str, given: usize },
-    /// A bare path and the matching flag were both given.
-    MixedArguments {
-        command: &'static str,
-        flags: String,
-    },
+    /// The `input:output` argument could not be read.
+    InvalidTarget { found: String, reason: &'static str },
     /// A filesystem operation failed.
     Io(IoError),
     /// `config.toml` could not be parsed.
@@ -307,23 +302,21 @@ impl fmt::Display for BuildError {
         match self {
             Self::NotASite { root, expected } => write!(
                 f,
-                "{} is not a site: no {} inside it. Point -i at the directory holding {}",
+                "{} is not a site: it has no {}. Build from the directory holding {}",
                 root.display(),
-                expected.file_name().unwrap_or_default().to_string_lossy(),
+                expected
+                    .file_name()
+                    .map(|name| name.to_string_lossy())
+                    .unwrap_or_default(),
                 TEMPLATES
             ),
             Self::NoPages { templates } => {
                 write!(f, "no pages to build in {}", templates.display())
             }
-            Self::MixedArguments { command, flags } => write!(
+            Self::InvalidTarget { found, reason } => write!(
                 f,
-                "{command} takes paths as bare arguments or as {flags}, not both"
-            ),
-            Self::TooManyPaths { command, given } => write!(
-                f,
-                "{command} takes at most {} path{}, {given} were given",
-                if *command == "init" { 1 } else { 2 },
-                if *command == "init" { "" } else { "s" }
+                "cannot read '{found}': {reason}. Expected input:output, \
+                 for example scaffold:public"
             ),
             Self::Io(error) => write!(f, "{error}"),
             Self::Config { path, source } => {

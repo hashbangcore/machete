@@ -34,23 +34,14 @@ pub enum Command {
 
 /// Arguments for `machete build`.
 ///
-/// Paths are given either as flags or as bare arguments, never both. A single
-/// bare path is the output; two are the input and then the output. Whatever is
-/// left unset falls back to `config.toml`, and finally to the current directory
-/// and `public/`.
+/// Paths follow the Sass shape, `input:output`. Either side may be left empty,
+/// and an empty side is filled in from `config.toml` rather than defaulted here,
+/// so `machete build :dist` writes to `dist` only when the config says so.
 #[derive(Debug, Args)]
 pub struct BuildArgs {
-    /// Output path, or input and output when given twice.
-    #[arg(value_name = "PATH")]
-    pub paths: Vec<PathBuf>,
-
-    /// Site directory holding `config.toml` and `templates/`.
-    #[arg(short, long, value_name = "DIR")]
-    pub input: Option<PathBuf>,
-
-    /// Directory to write the generated pages into.
-    #[arg(short, long, value_name = "DIR")]
-    pub output: Option<PathBuf>,
+    /// Source and destination, separated by a colon.
+    #[arg(value_name = "INPUT:OUTPUT")]
+    pub target: Option<String>,
 
     /// Empty the output directory before writing.
     #[arg(short, long)]
@@ -58,67 +49,71 @@ pub struct BuildArgs {
 }
 
 impl BuildArgs {
-    /// Returns the site root to read, from the flag or the first bare path.
+    /// Splits `input:output` into its two halves.
     ///
-    /// A lone bare path is the output, so only a pair carries an input.
-    pub fn input(&self) -> Option<&Path> {
-        self.input
-            .as_deref()
-            .or_else(|| (self.paths.len() > 1).then(|| self.paths[0].as_path()))
+    /// A bare path without a colon is rejected: it would not say whether it is
+    /// the source or the destination, and guessing would quietly build the
+    /// wrong thing.
+    pub fn parse(&self) -> Result<Target, BuildError> {
+        let Some(text) = self.target.as_deref() else {
+            return Ok(Target::default());
+        };
+
+        let Some((input, output)) = text.split_once(':') else {
+            return Err(BuildError::InvalidTarget {
+                found: text.to_string(),
+                reason: "missing ':' between input and output",
+            });
+        };
+
+        if output.contains(':') {
+            return Err(BuildError::InvalidTarget {
+                found: text.to_string(),
+                reason: "only one ':' is allowed",
+            });
+        }
+
+        Ok(Target {
+            input: non_empty(input),
+            output: non_empty(output),
+        })
+    }
+}
+
+/// The two sides of a build, either of which may be left to `config.toml`.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Target {
+    pub input: Option<PathBuf>,
+    pub output: Option<PathBuf>,
+}
+
+impl Target {
+    /// Returns the site root to read.
+    pub fn input(&self) -> PathBuf {
+        self.input.clone().unwrap_or_else(|| PathBuf::from("."))
     }
 
-    /// Returns the output to write, from the flag or the last bare path.
+    /// Returns the output to write, or `None` when the config decides.
     pub fn output(&self) -> Option<&Path> {
-        self.output
-            .as_deref()
-            .or_else(|| self.paths.last().map(PathBuf::as_path))
+        self.output.as_deref()
     }
+}
 
-    /// Rejects arguments that name the same thing twice or mix both forms.
-    ///
-    /// A bare path together with the matching flag is an error rather than a
-    /// silent preference for one of them, since neither reading is obviously
-    /// the one that was meant.
-    pub fn check(&self) -> Result<(), BuildError> {
-        let mut flags = Vec::new();
-        if self.input.is_some() {
-            flags.push("-i");
-        }
-        if self.output.is_some() {
-            flags.push("-o");
-        }
-
-        if !flags.is_empty() && !self.paths.is_empty() {
-            return Err(BuildError::MixedArguments {
-                command: "build",
-                flags: flags.join(" and "),
-            });
-        }
-
-        if self.paths.len() > 2 {
-            return Err(BuildError::TooManyPaths {
-                command: "build",
-                given: self.paths.len(),
-            });
-        }
-
-        Ok(())
-    }
+/// Reads a path as given, treating an empty half as unset.
+fn non_empty(text: &str) -> Option<PathBuf> {
+    let trimmed = text.trim();
+    (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
 }
 
 /// Arguments for `machete init`.
 ///
-/// The directory is given either as a bare path or as a flag, never both. With
-/// neither, the site is written to the current directory.
+/// Takes at most one bare path: the directory to create. With none, the site
+/// lands in the current directory.
 #[derive(Debug, Args)]
 pub struct InitArgs {
     /// Directory to create the new site in.
     #[arg(value_name = "PATH")]
-    pub paths: Vec<PathBuf>,
-
-    /// Directory to create the new site in.
-    #[arg(short, long, value_name = "DIR")]
-    pub output: Option<PathBuf>,
+    pub path: Option<PathBuf>,
 
     /// Overwrite files that already exist instead of leaving them untouched.
     #[arg(short, long)]
@@ -128,29 +123,7 @@ pub struct InitArgs {
 impl InitArgs {
     /// Returns the directory to write the site into.
     pub fn target(&self) -> PathBuf {
-        self.output
-            .clone()
-            .or_else(|| self.paths.first().cloned())
-            .unwrap_or_else(|| PathBuf::from("."))
-    }
-
-    /// Rejects arguments that name the directory twice or mix both forms.
-    pub fn check(&self) -> Result<(), BuildError> {
-        if self.output.is_some() && !self.paths.is_empty() {
-            return Err(BuildError::MixedArguments {
-                command: "init",
-                flags: "-o".to_string(),
-            });
-        }
-
-        if self.paths.len() > 1 {
-            return Err(BuildError::TooManyPaths {
-                command: "init",
-                given: self.paths.len(),
-            });
-        }
-
-        Ok(())
+        self.path.clone().unwrap_or_else(|| PathBuf::from("."))
     }
 }
 
@@ -166,18 +139,11 @@ pub struct CompletionsArgs {
 pub fn run(cli: Cli) -> Result<(), BuildError> {
     match cli.command {
         Command::Build(args) => {
-            args.check()?;
-            let root = args
-                .input()
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("."));
-            let config = Config::load(&root)?;
-            build(&config, &config.output_dir(args.output()), args.force)
+            let target = args.parse()?;
+            let config = Config::load(&target.input())?;
+            build(&config, &config.output_dir(target.output()), args.force)
         }
-        Command::Init(args) => {
-            args.check()?;
-            write_scaffold(&args.target(), args.force)
-        }
+        Command::Init(args) => write_scaffold(&args.target(), args.force),
         Command::Completions(args) => completions(args),
     }
 }

@@ -1,131 +1,102 @@
-//! Argument parsing and path resolution for the command line interface.
+//! Argument parsing for the command line interface.
 //!
-//! These go through clap rather than the handlers, so they check what the
-//! justfile passes and the shorter forms a user types by hand.
-//!
-//! Paths are given either as bare arguments or as flags, never both. A bare
-//! path beats `config.toml`, and `config.toml` beats the built-in default.
+//! `build` follows the Sass shape, `input:output`, where either side may be
+//! left empty and is then filled in from `config.toml`. `init` takes at most
+//! one bare path.
 
 use clap::Parser;
-use machete::cli::{BuildArgs, Cli, Command, InitArgs};
+use machete::cli::{BuildArgs, Cli, Command, InitArgs, Target};
 use machete::error::BuildError;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-fn build_args(args: &[&str]) -> BuildArgs {
+fn build_args(target: Option<&str>, extra: &[&str]) -> BuildArgs {
     let mut full = vec!["machete", "build"];
-    full.extend_from_slice(args);
-    let Command::Build(parsed) = Cli::try_parse_from(&full)
+    if let Some(target) = target {
+        full.push(target);
+    }
+    full.extend_from_slice(extra);
+    let Command::Build(args) = Cli::try_parse_from(&full)
         .expect("the arguments are accepted")
         .command
     else {
         panic!("expected the build command");
     };
-    parsed
+    args
 }
 
-fn input(args: &[&str]) -> Option<PathBuf> {
-    build_args(args).input().map(PathBuf::from)
-}
-
-fn output(args: &[&str]) -> Option<PathBuf> {
-    build_args(args).output().map(PathBuf::from)
-}
-
-#[test]
-fn flags_set_both_paths() {
-    let args = build_args(&["-i", "./scaffold", "-f", "-o", "./outputs/"]);
-    assert_eq!(args.input(), Some(Path::new("./scaffold")));
-    assert_eq!(args.output(), Some(Path::new("./outputs/")));
-    assert!(args.force);
-}
-
-#[test]
-fn flags_also_have_long_forms() {
-    let args = build_args(&["--input", "site", "--output", "out", "--force"]);
-    assert_eq!(args.input(), Some(Path::new("site")));
-    assert_eq!(args.output(), Some(Path::new("out")));
-    assert!(args.force);
-}
-
-#[test]
-fn no_paths_fall_back_to_the_configuration() {
-    assert_eq!(input(&[]), None);
-    assert_eq!(output(&[]), None);
-}
-
-#[test]
-fn one_bare_path_is_the_output() {
-    assert_eq!(input(&["out"]), None);
-    assert_eq!(output(&["out"]), Some(PathBuf::from("out")));
-}
-
-#[test]
-fn two_bare_paths_are_the_input_then_the_output() {
-    assert_eq!(input(&["site", "out"]), Some(PathBuf::from("site")));
-    assert_eq!(output(&["site", "out"]), Some(PathBuf::from("out")));
-}
-
-#[test]
-fn a_flag_with_a_bare_path_is_rejected() {
-    let error = build_args(&["-i", "flag", "site", "out"]).check();
-    assert!(matches!(error, Err(BuildError::MixedArguments { .. })));
-}
-
-#[test]
-fn the_mixed_message_names_the_flag_and_the_command() {
-    let Err(BuildError::MixedArguments { command, flags }) = build_args(&["-i", "a", "b"]).check()
-    else {
-        panic!("expected a mixed-arguments error");
-    };
-    assert_eq!(command, "build");
-    assert_eq!(flags, "-i");
-}
-
-#[test]
-fn both_flags_at_once_are_fine_without_bare_paths() {
-    assert!(build_args(&["-i", "a", "-o", "b"]).check().is_ok());
-}
-
-#[test]
-fn three_bare_paths_are_rejected() {
-    let args = build_args(&["a", "b", "c"]);
-    assert!(args.check().is_err());
-}
-
-#[test]
-fn one_or_two_paths_are_accepted() {
-    assert!(build_args(&[]).check().is_ok());
-    assert!(build_args(&["a"]).check().is_ok());
-    assert!(build_args(&["a", "b"]).check().is_ok());
-}
-
-#[test]
-fn force_defaults_to_false() {
-    assert!(!build_args(&[]).force);
+fn target(args: &str) -> Target {
+    build_args(Some(args), &[]).parse().expect("a valid target")
 }
 
 fn init_args(args: &[&str]) -> InitArgs {
     let mut full = vec!["machete", "init"];
     full.extend_from_slice(args);
-    let Command::Init(parsed) = Cli::try_parse_from(&full)
+    let Command::Init(args) = Cli::try_parse_from(&full)
         .expect("the arguments are accepted")
         .command
     else {
         panic!("expected the init command");
     };
-    parsed
+    args
 }
 
 #[test]
-fn init_takes_a_flag_and_force() {
-    let args = init_args(&["-f", "-o", "demo"]);
-    assert_eq!(args.target(), PathBuf::from("demo"));
-    assert!(args.force);
+fn no_target_means_the_configuration_decides() {
+    let parsed = build_args(None, &[]).parse().expect("valid");
+    assert_eq!(parsed, Target::default());
+    assert_eq!(parsed.input(), PathBuf::from("."));
+    assert_eq!(parsed.output(), None);
 }
 
 #[test]
-fn init_takes_a_bare_path() {
-    assert_eq!(init_args(&["demo-01"]).target(), PathBuf::from("demo-01"));
+fn both_sides_given() {
+    let parsed = target("scaffold:public");
+    assert_eq!(parsed.input, Some(PathBuf::from("scaffold")));
+    assert_eq!(parsed.output, Some(PathBuf::from("public")));
+}
+
+#[test]
+fn an_empty_input_falls_back_to_the_current_directory() {
+    let parsed = target(":public");
+    assert_eq!(parsed.input, None);
+    assert_eq!(parsed.input(), PathBuf::from("."));
+    assert_eq!(parsed.output, Some(PathBuf::from("public")));
+}
+
+#[test]
+fn an_empty_output_falls_back_to_the_configuration() {
+    let parsed = target("scaffold:");
+    assert_eq!(parsed.input, Some(PathBuf::from("scaffold")));
+    assert_eq!(parsed.output, None);
+}
+
+#[test]
+fn a_bare_path_without_a_colon_is_rejected() {
+    // It would not say whether it is the source or the destination.
+    let error = build_args(Some("public"), &[]).parse();
+    assert!(matches!(error, Err(BuildError::InvalidTarget { .. })));
+}
+
+#[test]
+fn two_colons_are_rejected() {
+    let error = build_args(Some("a:b:c"), &[]).parse();
+    assert!(matches!(error, Err(BuildError::InvalidTarget { .. })));
+}
+
+#[test]
+fn the_invalid_target_message_names_what_it_wanted() {
+    let error = build_args(Some("a:b:c"), &[])
+        .parse()
+        .expect_err("two colons");
+    let message = error.to_string();
+    assert!(message.contains("input:output"), "message was {message}");
+    assert!(message.contains("a:b:c"), "message was {message}");
+}
+
+#[test]
+fn force_travels_alongside_a_target() {
+    assert!(build_args(Some("a:b"), &["-f"]).force);
+    assert!(!build_args(Some("a:b"), &[]).force);
 }
 
 #[test]
@@ -134,24 +105,34 @@ fn init_defaults_to_the_current_directory() {
 }
 
 #[test]
-fn an_init_flag_with_a_bare_path_is_rejected() {
-    let error = init_args(&["bare", "-o", "flag"]).check();
-    assert!(matches!(error, Err(BuildError::MixedArguments { .. })));
+fn init_takes_one_bare_path() {
+    assert_eq!(init_args(&["new-site"]).target(), PathBuf::from("new-site"));
 }
 
 #[test]
-fn init_rejects_the_mix_even_with_a_third_path() {
-    // `init dir5 -o dir6 dir7` reports the mix, which is the better message:
-    // naming the directory twice in two ways is the real problem.
-    let error = init_args(&["dir5", "-o", "dir6", "dir7"]).check();
-    assert!(matches!(error, Err(BuildError::MixedArguments { .. })));
+fn init_takes_a_nested_path() {
+    assert_eq!(
+        init_args(&["output/dir/new-site"]).target(),
+        PathBuf::from("output/dir/new-site")
+    );
 }
 
 #[test]
-fn init_rejects_two_bare_paths() {
-    assert!(init_args(&["a", "b"]).check().is_err());
-    assert!(init_args(&["a"]).check().is_ok());
-    assert!(init_args(&[]).check().is_ok());
+fn init_takes_force() {
+    assert!(init_args(&["-f"]).force);
+    assert!(init_args(&["new-site", "-f"]).force);
+}
+
+#[test]
+fn init_rejects_two_paths() {
+    assert!(Cli::try_parse_from(["machete", "init", "a", "b"]).is_err());
+}
+
+#[test]
+fn the_path_flags_are_gone() {
+    assert!(Cli::try_parse_from(["machete", "build", "-i", "a"]).is_err());
+    assert!(Cli::try_parse_from(["machete", "build", "-o", "a"]).is_err());
+    assert!(Cli::try_parse_from(["machete", "init", "-o", "a"]).is_err());
 }
 
 #[test]
