@@ -10,7 +10,7 @@
 //! 5. [`vars::substitute`] resolves `{variable}` references.
 //! 6. [`html::render`] writes the tree back out as HTML.
 //!
-//! Only [`build`] and [`config`] touch the filesystem. Everything else is a
+//! Only [`build`] touches the filesystem. Everything else is a
 //! function from input to output, so each stage is testable on its own.
 //!
 //! # Output
@@ -30,11 +30,10 @@
 pub mod build;
 pub mod cli;
 pub mod compose;
-pub mod config;
 pub mod error;
 pub mod html;
 pub mod node;
-pub mod scaffold;
 pub mod vars;
 
+pub use build::{Config, write_scaffold};
 pub use error::BuildError;

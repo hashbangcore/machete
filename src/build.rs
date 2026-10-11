@@ -3,13 +3,14 @@
 //! Everything below the pipeline proper lives here, because it touches the
 //! filesystem. The stages themselves are pure and live in [`crate::html`],
 //! [`crate::vars`] and [`crate::compose`].
+//!
+//! [`Config`] is here for the same reason: reading `config.toml` is I/O.
 
-use crate::compose::{Defs, apply_layout, extract_layout};
-use crate::config::Config;
+use crate::compose::{self, Defs, apply_layout, extract_layout};
 use crate::error::{BuildError, ExpandError, IoError, LayoutError};
 use crate::html::{parse, render};
 use crate::node::Node;
-use crate::vars::substitute;
+use crate::vars::{Bindings, Scope, substitute};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -32,7 +33,7 @@ pub fn build(config: &Config, output: &Path, force: bool) -> Result<(), BuildErr
     let defs = load_definitions(config)?;
 
     for path in collect_pages(&config.templates)? {
-        let page = build_page(config, &defs, &path, output)?;
+        let page = build_page(config, &defs, &path)?;
         write_page(output, &path, &page)?;
     }
 
@@ -40,56 +41,49 @@ pub fn build(config: &Config, output: &Path, force: bool) -> Result<(), BuildErr
 }
 
 /// Builds one page and returns the HTML to write.
-fn build_page(
-    config: &Config,
-    defs: &Defs,
-    path: &Path,
-    _output: &Path,
-) -> Result<String, BuildError> {
+fn build_page(config: &Config, defs: &Defs, path: &Path) -> Result<String, BuildError> {
+    let scope = config.scope();
     let parsed = read_page(path)?;
+
     let extracted = extract_layout(parsed).map_err(|source| BuildError::Layout {
         path: path.to_path_buf(),
         source,
     })?;
 
-    let layout_name = extracted.layout.as_deref();
-    let layout_path = config.layout_path(layout_name);
-    let layout = read_page(&layout_path).map_err(|error| match error {
-        BuildError::Io(IoError { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
-            BuildError::Layout {
-                path: layout_path.clone(),
-                source: LayoutError::NotFound {
-                    name: layout_name.unwrap_or("layout").to_string(),
-                },
-            }
-        }
-        other => other,
-    })?;
+    let layout_path = config.layout_path(extracted.layout.as_deref());
+
+    if !layout_path.exists() {
+        return Err(BuildError::Layout {
+            path: path.to_path_buf(),
+            source: LayoutError::NotFound {
+                name: extracted.layout.unwrap_or_else(|| "layout".to_string()),
+            },
+        });
+    }
+
+    let layout = read_page(&layout_path)?;
 
     let merged = apply_layout(layout, extracted.page).map_err(|source| BuildError::Layout {
-        path: layout_path,
+        path: path.to_path_buf(),
         source,
     })?;
 
-    let expanded = crate::compose::expand(&merged, defs, &config.scope()).map_err(|source| {
-        BuildError::Expand {
-            path: path.to_path_buf(),
-            source,
-        }
+    let mut page = compose::expand(&merged, defs, &scope).map_err(|source| BuildError::Expand {
+        path: path.to_path_buf(),
+        source,
     })?;
 
-    let mut finished = expanded;
-    substitute(&mut finished, &config.scope()).map_err(|source| BuildError::Expand {
+    substitute(&mut page, &scope).map_err(|source| BuildError::Expand {
         path: path.to_path_buf(),
         source: ExpandError::Subst(source),
     })?;
 
-    ensure_clean(&finished).map_err(|source| BuildError::Expand {
+    ensure_clean(&page).map_err(|source| BuildError::Expand {
         path: path.to_path_buf(),
         source,
     })?;
 
-    Ok(render(&finished))
+    Ok(render(&page))
 }
 
 /// Fails when any construction of Machete is still present.
@@ -252,4 +246,155 @@ fn collect_pages(templates: &Path) -> Result<Vec<PathBuf>, BuildError> {
 
     pages.sort();
     Ok(pages)
+}
+
+// ---------------------------------------------------------------------------
+// Configuration
+// ---------------------------------------------------------------------------
+
+/// The directories a site is made of.
+#[derive(Debug, Clone)]
+pub struct Config {
+    /// The site root, the directory holding `config.toml`.
+    pub root: PathBuf,
+    /// Where pages and layouts live.
+    pub templates: PathBuf,
+    /// Where component definitions live.
+    pub partials: PathBuf,
+    /// Where additional layouts live.
+    pub layouts: PathBuf,
+    /// Variables available to every page, layout and component.
+    pub globals: Bindings,
+}
+
+/// The default directory names, used when a site is laid out conventionally.
+const TEMPLATES: &str = "templates";
+const PARTIALS: &str = "partials";
+const LAYOUTS: &str = "layouts";
+const CONFIG_FILE: &str = "config.toml";
+
+impl Config {
+    /// Reads `config.toml` from `root` and resolves the site directories.
+    ///
+    /// A missing `config.toml` is not an error: a site may define everything in
+    /// its pages, and the globals are simply empty.
+    pub fn load(root: &Path) -> Result<Self, BuildError> {
+        let path = root.join(CONFIG_FILE);
+        let globals = match std::fs::read_to_string(&path) {
+            Ok(text) => parse_globals(&text, &path)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Bindings::new(),
+            Err(source) => return Err(BuildError::Io(IoError::new("read", path, source))),
+        };
+
+        let templates = root.join(TEMPLATES);
+
+        Ok(Self {
+            root: root.to_path_buf(),
+            partials: templates.join(PARTIALS),
+            layouts: templates.join(LAYOUTS),
+            templates,
+            globals,
+        })
+    }
+
+    /// Returns a scope holding only the global variables.
+    pub fn scope(&self) -> Scope {
+        Scope::new(self.globals.clone())
+    }
+
+    /// Reads the layout with the given name, or the default one when unnamed.
+    pub fn layout_path(&self, name: Option<&str>) -> PathBuf {
+        match name {
+            Some(name) => self.layouts.join(format!("{name}.html")),
+            None => self.templates.join("layout.html"),
+        }
+    }
+}
+
+/// Reads the top-level keys of a configuration file as variable bindings.
+fn parse_globals(text: &str, path: &Path) -> Result<Bindings, BuildError> {
+    let globals: toml::Table = toml::from_str(text).map_err(|source| BuildError::Config {
+        path: path.to_path_buf(),
+        source,
+    })?;
+
+    let mut bindings = Bindings::new();
+
+    for (key, value) in globals {
+        let text = match value {
+            toml::Value::String(text) => text,
+            other => other.to_string(),
+        };
+        bindings.insert(key, text);
+    }
+
+    Ok(bindings)
+}
+
+// ---------------------------------------------------------------------------
+// Scaffold
+// ---------------------------------------------------------------------------
+
+/// Writes the scaffold for a new site into `root`.
+///
+/// The files come from the `scaffold/` directory, embedded at compile time, so
+/// `init` produces the same site wherever it runs.
+///
+/// Without `force`, a file that already exists is left alone, so running `init`
+/// twice does not overwrite work in progress.
+pub fn write_scaffold(root: &Path, force: bool) -> Result<(), BuildError> {
+    for entry in scaffold_files() {
+        let path = root.join(entry.path);
+
+        if path.exists() && !force {
+            continue;
+        }
+
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|source| {
+                BuildError::Io(IoError::new("create directory", parent, source))
+            })?;
+        }
+
+        fs::write(&path, entry.contents)
+            .map_err(|source| BuildError::Io(IoError::new("write", &path, source)))?;
+    }
+
+    Ok(())
+}
+
+/// A file belonging to the scaffold, with its path relative to the site root.
+struct ScaffoldFile {
+    path: &'static str,
+    contents: &'static str,
+}
+
+/// The scaffold itself, in the order it is written.
+fn scaffold_files() -> Vec<ScaffoldFile> {
+    vec![
+        ScaffoldFile {
+            path: "config.toml",
+            contents: include_str!("../scaffold/config.toml"),
+        },
+        ScaffoldFile {
+            path: "templates/layout.html",
+            contents: include_str!("../scaffold/templates/layout.html"),
+        },
+        ScaffoldFile {
+            path: "templates/index.html",
+            contents: include_str!("../scaffold/templates/index.html"),
+        },
+        ScaffoldFile {
+            path: "templates/partials/head.html",
+            contents: include_str!("../scaffold/templates/partials/head.html"),
+        },
+        ScaffoldFile {
+            path: "templates/partials/aside-component.html",
+            contents: include_str!("../scaffold/templates/partials/aside-component.html"),
+        },
+        ScaffoldFile {
+            path: "templates/partials/figure.html",
+            contents: include_str!("../scaffold/templates/partials/figure.html"),
+        },
+    ]
 }

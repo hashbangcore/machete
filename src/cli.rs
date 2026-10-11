@@ -4,10 +4,8 @@
 //! handler. Both live here rather than in `main.rs` so the argument parsing can
 //! be exercised from tests without spawning a process.
 
-use crate::build::build;
-use crate::config::Config;
+use crate::build::{Config, build, write_scaffold};
 use crate::error::BuildError;
-use crate::scaffold::write;
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use std::path::PathBuf;
@@ -77,7 +75,7 @@ pub fn run(cli: Cli) -> Result<(), BuildError> {
             let config = Config::load(&args.input)?;
             build(&config, &args.output, args.force)
         }
-        Command::Init(args) => write(&args.output, args.force),
+        Command::Init(args) => write_scaffold(&args.output, args.force),
         Command::Completions(args) => completions(args),
     }
 }

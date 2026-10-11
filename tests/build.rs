@@ -6,8 +6,7 @@
 //! output.
 
 use machete::build::build;
-use machete::config::Config;
-use machete::scaffold::write;
+use machete::build::{Config, write_scaffold as write};
 use std::path::{Path, PathBuf};
 
 /// A temporary directory that removes itself when the test ends.
