@@ -11,6 +11,9 @@ use std::fmt;
 use std::io;
 use std::path::PathBuf;
 
+/// The directory a site keeps its pages in, named in the message above.
+const TEMPLATES: &str = "templates";
+
 /// Raised when the source cannot be split into tokens.
 #[derive(Debug)]
 pub enum TokenizeError {
@@ -135,6 +138,10 @@ pub struct IoError {
 /// Raised when a filesystem operation cannot be completed.
 #[derive(Debug)]
 pub enum BuildError {
+    /// The input directory is not a site: it holds no `templates/`.
+    NotASite { root: PathBuf, expected: PathBuf },
+    /// The site has templates but no pages to build.
+    NoPages { templates: PathBuf },
     /// A filesystem operation failed.
     Io(IoError),
     /// `config.toml` could not be parsed.
@@ -291,6 +298,16 @@ impl fmt::Display for IoError {
 impl fmt::Display for BuildError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::NotASite { root, expected } => write!(
+                f,
+                "{} is not a site: no {} inside it. Point -i at the directory holding {}",
+                root.display(),
+                expected.file_name().unwrap_or_default().to_string_lossy(),
+                TEMPLATES
+            ),
+            Self::NoPages { templates } => {
+                write!(f, "no pages to build in {}", templates.display())
+            }
             Self::Io(error) => write!(f, "{error}"),
             Self::Config { path, source } => {
                 write!(f, "failed to parse {}: {source}", path.display())

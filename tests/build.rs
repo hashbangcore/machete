@@ -7,6 +7,7 @@
 
 use machete::build::build;
 use machete::build::{Config, write_scaffold as write};
+use machete::error::BuildError;
 use std::path::{Path, PathBuf};
 
 /// A temporary directory that removes itself when the test ends.
@@ -365,4 +366,46 @@ fn copy_scaffold(from: &Path, to: &Path) {
         let entry = entry.expect("reads an entry");
         std::fs::copy(entry.path(), target.join(entry.file_name())).expect("copies a partial");
     }
+}
+
+#[test]
+fn an_input_without_templates_is_reported() {
+    // Pointing -i at templates/ instead of the site root is the easy mistake
+    // to make, and it used to produce an empty output and exit successfully.
+    let workspace = Workspace::new("build-wrong-input");
+    workspace.write("config.toml", "title = \"x\"\n");
+    workspace.write(
+        "templates/index.html",
+        "<html type=\"layout\"/>\n<main>y</main>\n",
+    );
+
+    let templates = workspace.join("templates");
+    let error = Config::load(&templates).expect_err("not a site");
+    assert!(matches!(error, BuildError::NotASite { .. }));
+    let message = format!("{error}");
+    assert!(message.contains("not a site"), "message was {message}");
+    assert!(message.contains("templates"), "message was {message}");
+}
+
+#[test]
+fn a_site_with_templates_but_no_pages_is_reported() {
+    let workspace = Workspace::new("build-no-pages");
+    workspace.write("config.toml", "title = \"x\"\n");
+    std::fs::create_dir_all(workspace.join("templates")).expect("creates templates");
+
+    let out = workspace.join("out");
+    let error = build(&workspace.site(), &out, false).expect_err("nothing to build");
+    assert!(matches!(error, BuildError::NoPages { .. }));
+    assert!(!out.join("index.html").exists());
+}
+
+#[test]
+fn the_site_root_is_the_directory_holding_config_toml() {
+    let workspace = Workspace::new("build-root");
+    minimal_site(&workspace);
+
+    // Building from the site root works and produces the page.
+    let out = workspace.join("out");
+    build(&workspace.site(), &out, false).expect("the build succeeds");
+    assert!(out.join("index.html").exists());
 }

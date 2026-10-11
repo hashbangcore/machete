@@ -31,8 +31,15 @@ pub fn build(config: &Config, output: &Path, force: bool) -> Result<(), BuildErr
         .map_err(|source| BuildError::Io(IoError::new("create directory", output, source)))?;
 
     let defs = load_definitions(config)?;
+    let pages = collect_pages(&config.templates)?;
 
-    for path in collect_pages(&config.templates)? {
+    if pages.is_empty() {
+        return Err(BuildError::NoPages {
+            templates: config.templates.clone(),
+        });
+    }
+
+    for path in pages {
         let page = build_page(config, &defs, &path)?;
         write_page(output, &path, &page)?;
     }
@@ -277,7 +284,9 @@ impl Config {
     /// Reads `config.toml` from `root` and resolves the site directories.
     ///
     /// A missing `config.toml` is not an error: a site may define everything in
-    /// its pages, and the globals are simply empty.
+    /// its pages, and the globals are simply empty. A missing `templates/` is an
+    /// error, because a site with no templates has nothing to build and the
+    /// mistake is far more often a wrong `-i` than an empty site.
     pub fn load(root: &Path) -> Result<Self, BuildError> {
         let path = root.join(CONFIG_FILE);
         let globals = match std::fs::read_to_string(&path) {
@@ -287,6 +296,13 @@ impl Config {
         };
 
         let templates = root.join(TEMPLATES);
+
+        if !templates.is_dir() {
+            return Err(BuildError::NotASite {
+                root: root.to_path_buf(),
+                expected: templates.clone(),
+            });
+        }
 
         Ok(Self {
             root: root.to_path_buf(),
