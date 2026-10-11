@@ -409,3 +409,71 @@ fn the_site_root_is_the_directory_holding_config_toml() {
     build(&workspace.site(), &out, false).expect("the build succeeds");
     assert!(out.join("index.html").exists());
 }
+
+#[test]
+fn the_output_comes_from_the_configuration_by_default() {
+    let workspace = Workspace::new("paths-config");
+    minimal_site(&workspace);
+    workspace.write(
+        "config.toml",
+        "title = \"machete\"\n\n[paths]\noutput = \"sitio\"\n",
+    );
+
+    let config = workspace.site();
+    let out = config.output_dir(None);
+
+    assert_eq!(out, workspace.join("sitio"));
+    build(&config, &out, false).expect("the build succeeds");
+    assert!(workspace.join("sitio/index.html").exists());
+}
+
+#[test]
+fn a_command_line_output_beats_the_configuration() {
+    let workspace = Workspace::new("paths-override");
+    minimal_site(&workspace);
+    workspace.write(
+        "config.toml",
+        "title = \"machete\"\n\n[paths]\noutput = \"sitio\"\n",
+    );
+
+    let config = workspace.site();
+    // An override is taken as written, relative to wherever machete was run,
+    // so it is not resolved against the site root.
+    let out = config.output_dir(Some(Path::new("otro")));
+
+    assert_eq!(out, Path::new("otro"));
+}
+
+#[test]
+fn paths_is_reserved_and_never_becomes_a_variable() {
+    let workspace = Workspace::new("paths-reserved");
+    minimal_site(&workspace);
+    workspace.write(
+        "config.toml",
+        "title = \"x\"\n\n[paths]\noutput = \"public\"\n",
+    );
+    assert_eq!(workspace.site().globals.get("paths"), None);
+    assert_eq!(
+        workspace.site().globals.get("title").map(String::as_str),
+        Some("x")
+    );
+}
+
+#[test]
+fn the_output_defaults_to_public() {
+    let workspace = Workspace::new("paths-default");
+    minimal_site(&workspace);
+    assert_eq!(workspace.site().output_dir(None), workspace.join("public"));
+}
+
+#[test]
+fn a_site_without_paths_still_builds_to_public() {
+    let workspace = Workspace::new("paths-absent");
+    minimal_site(&workspace);
+    workspace.write("config.toml", "title = \"x\"\n");
+
+    let config = workspace.site();
+    let out = config.output_dir(None);
+    build(&config, &out, false).expect("the build succeeds");
+    assert!(out.join("index.html").exists());
+}

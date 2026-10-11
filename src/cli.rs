@@ -8,7 +8,7 @@ use crate::build::{Config, build, write_scaffold};
 use crate::error::BuildError;
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Static site generator that composes HTML from components, layouts and
 /// variables.
@@ -33,19 +33,58 @@ pub enum Command {
 }
 
 /// Arguments for `machete build`.
+///
+/// Paths may be given as flags or as bare arguments. A single bare path is the
+/// output; two are the input and then the output. Whatever is left unset falls
+/// back to `config.toml`, and finally to the current directory and `public/`.
+/// Flags win over bare paths, and both win over the configuration.
 #[derive(Debug, Args)]
 pub struct BuildArgs {
+    /// Output path, or input and output when given twice.
+    #[arg(value_name = "PATH")]
+    pub paths: Vec<PathBuf>,
+
     /// Site directory holding `config.toml` and `templates/`.
     #[arg(short, long, value_name = "DIR")]
-    pub input: PathBuf,
+    pub input: Option<PathBuf>,
 
     /// Directory to write the generated pages into.
     #[arg(short, long, value_name = "DIR")]
-    pub output: PathBuf,
+    pub output: Option<PathBuf>,
 
     /// Empty the output directory before writing.
     #[arg(short, long)]
     pub force: bool,
+}
+
+impl BuildArgs {
+    /// Returns the site root to read, from the flag or the first bare path.
+    ///
+    /// A lone bare path is the output, so only a pair carries an input.
+    pub fn input(&self) -> Option<&Path> {
+        self.input.as_deref().or_else(|| {
+            // A lone bare path is the output, so the input needs a pair.
+            let pair = matches!(self.paths.as_slice(), [_, _]);
+            pair.then(|| self.paths[0].as_path())
+        })
+    }
+
+    /// Returns the output to write, from the flag or the last bare path.
+    pub fn output(&self) -> Option<&Path> {
+        self.output
+            .as_deref()
+            .or_else(|| self.paths.last().map(PathBuf::as_path))
+    }
+
+    /// Fails when more than two bare paths are given.
+    pub fn check(&self) -> Result<(), BuildError> {
+        if self.paths.len() > 2 {
+            return Err(BuildError::TooManyPaths {
+                given: self.paths.len(),
+            });
+        }
+        Ok(())
+    }
 }
 
 /// Arguments for `machete init`.
@@ -72,8 +111,13 @@ pub struct CompletionsArgs {
 pub fn run(cli: Cli) -> Result<(), BuildError> {
     match cli.command {
         Command::Build(args) => {
-            let config = Config::load(&args.input)?;
-            build(&config, &args.output, args.force)
+            args.check()?;
+            let root = args
+                .input()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("."));
+            let config = Config::load(&root)?;
+            build(&config, &config.output_dir(args.output()), args.force)
         }
         Command::Init(args) => write_scaffold(&args.output, args.force),
         Command::Completions(args) => completions(args),

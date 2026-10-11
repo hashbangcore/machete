@@ -270,6 +270,8 @@ pub struct Config {
     pub partials: PathBuf,
     /// Where additional layouts live.
     pub layouts: PathBuf,
+    /// Where the built pages go, relative to the root.
+    pub output: PathBuf,
     /// Variables available to every page, layout and component.
     pub globals: Bindings,
 }
@@ -279,6 +281,10 @@ const TEMPLATES: &str = "templates";
 const PARTIALS: &str = "partials";
 const LAYOUTS: &str = "layouts";
 const CONFIG_FILE: &str = "config.toml";
+const DEFAULT_OUTPUT: &str = "public";
+
+/// The configuration table that configures paths rather than variables.
+const PATHS: &str = "paths";
 
 impl Config {
     /// Reads `config.toml` from `root` and resolves the site directories.
@@ -289,9 +295,9 @@ impl Config {
     /// mistake is far more often a wrong `-i` than an empty site.
     pub fn load(root: &Path) -> Result<Self, BuildError> {
         let path = root.join(CONFIG_FILE);
-        let globals = match std::fs::read_to_string(&path) {
-            Ok(text) => parse_globals(&text, &path)?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Bindings::new(),
+        let (globals, output) = match std::fs::read_to_string(&path) {
+            Ok(text) => parse_config(&text, &path)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (Bindings::new(), None),
             Err(source) => return Err(BuildError::Io(IoError::new("read", path, source))),
         };
 
@@ -309,8 +315,17 @@ impl Config {
             partials: templates.join(PARTIALS),
             layouts: templates.join(LAYOUTS),
             templates,
+            output: output.unwrap_or_else(|| PathBuf::from(DEFAULT_OUTPUT)),
             globals,
         })
+    }
+
+    /// Returns the output directory resolved against the site root.
+    pub fn output_dir(&self, override_path: Option<&Path>) -> PathBuf {
+        match override_path {
+            Some(path) => path.to_path_buf(),
+            None => self.root.join(&self.output),
+        }
     }
 
     /// Returns a scope holding only the global variables.
@@ -327,24 +342,41 @@ impl Config {
     }
 }
 
-/// Reads the top-level keys of a configuration file as variable bindings.
-fn parse_globals(text: &str, path: &Path) -> Result<Bindings, BuildError> {
-    let globals: toml::Table = toml::from_str(text).map_err(|source| BuildError::Config {
+/// Reads a configuration file into its globals and its output path.
+///
+/// The keys at the top level are the global variables. The `paths` table is
+/// reserved: it configures where things live, so its keys never become
+/// variables.
+fn parse_config(text: &str, path: &Path) -> Result<(Bindings, Option<PathBuf>), BuildError> {
+    let table: toml::Table = toml::from_str(text).map_err(|source| BuildError::Config {
         path: path.to_path_buf(),
         source,
     })?;
 
-    let mut bindings = Bindings::new();
+    let mut globals = Bindings::new();
+    let mut output = None;
 
-    for (key, value) in globals {
-        let text = match value {
-            toml::Value::String(text) => text,
-            other => other.to_string(),
-        };
-        bindings.insert(key, text);
+    for (key, value) in table {
+        if key == PATHS {
+            output = value
+                .get("output")
+                .map(|value| scalar(value.clone()))
+                .filter(|text| !text.is_empty())
+                .map(PathBuf::from);
+            continue;
+        }
+        globals.insert(key, scalar(value));
     }
 
-    Ok(bindings)
+    Ok((globals, output))
+}
+
+/// Renders a TOML scalar as the text a variable should hold.
+fn scalar(value: toml::Value) -> String {
+    match value {
+        toml::Value::String(text) => text,
+        other => other.to_string(),
+    }
 }
 
 // ---------------------------------------------------------------------------

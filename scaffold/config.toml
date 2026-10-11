@@ -1,1 +1,4 @@
 title = "machete"
+
+[paths]
+output = "public"
