@@ -45,11 +45,21 @@ cargo install --path .
 
 ## Commands
 
+Paths may be given as flags or as bare arguments, and a flag wins over a bare
+path. Both fall back to `config.toml`.
+
+```
+machete build                 both paths from config.toml
+machete build public          output only
+machete build . public        input and output
+machete build -i . -o public  the flags
+```
+
 | Command | What it does |
 |---|---|
 | `machete build -i <site> -o <out>` | Expands a site into finished pages |
 | `machete build -i <site> -o <out> -f` | Empties the output first, so stale pages cannot survive |
-| `machete init -o <dir>` | Writes a new site |
+| `machete init <dir>` | Writes a new site |
 | `machete init -o <dir> -f` | Overwrites files that already exist |
 | `machete completions <shell>` | Prints a completion script for bash, zsh, fish, elvish or powershell |
 
@@ -203,7 +213,13 @@ the globals, and they reach every page, layout and component:
 
 ```toml
 title = "machete"
+
+[paths]
+output = "public"
 ```
+
+`paths` is reserved: its keys configure where things live and never become
+variables. The output defaults to `public/` when it is not given.
 
 Local variables belong to a single component invocation, through its attributes
 or its data block. They do not change the globals.
@@ -251,7 +267,7 @@ like any other.
 ## Development
 
 ```
-cargo test          # 109 tests
+cargo test          # 123 tests
 cargo clippy --all-targets
 cargo fmt
 just build          # build the scaffold into ./outputs/build-example

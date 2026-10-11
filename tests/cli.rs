@@ -7,7 +7,7 @@
 //! path beats `config.toml`, and `config.toml` beats the built-in default.
 
 use clap::Parser;
-use machete::cli::{BuildArgs, Cli, Command};
+use machete::cli::{BuildArgs, Cli, Command, InitArgs};
 use std::path::{Path, PathBuf};
 
 fn build_args(args: &[&str]) -> BuildArgs {
@@ -94,20 +94,48 @@ fn force_defaults_to_false() {
     assert!(!build_args(&[]).force);
 }
 
-#[test]
-fn init_takes_force_and_output() {
-    let cli = Cli::try_parse_from(["machete", "init", "-f", "-o", "./outputs/init-example"])
-        .expect("the arguments are accepted");
-    let Command::Init(args) = cli.command else {
+fn init_args(args: &[&str]) -> InitArgs {
+    let mut full = vec!["machete", "init"];
+    full.extend_from_slice(args);
+    let Command::Init(parsed) = Cli::try_parse_from(&full)
+        .expect("the arguments are accepted")
+        .command
+    else {
         panic!("expected the init command");
     };
-    assert_eq!(args.output.to_str(), Some("./outputs/init-example"));
+    parsed
+}
+
+#[test]
+fn init_takes_a_flag_and_force() {
+    let args = init_args(&["-f", "-o", "demo"]);
+    assert_eq!(args.target(), PathBuf::from("demo"));
     assert!(args.force);
 }
 
 #[test]
-fn init_requires_an_output() {
-    assert!(Cli::try_parse_from(["machete", "init"]).is_err());
+fn init_takes_a_bare_path() {
+    assert_eq!(init_args(&["demo-01"]).target(), PathBuf::from("demo-01"));
+}
+
+#[test]
+fn init_defaults_to_the_current_directory() {
+    assert_eq!(init_args(&[]).target(), PathBuf::from("."));
+}
+
+#[test]
+fn an_init_flag_beats_a_bare_path() {
+    assert_eq!(
+        init_args(&["bare", "-o", "flag"]).target(),
+        PathBuf::from("flag")
+    );
+}
+
+#[test]
+fn init_rejects_two_bare_paths() {
+    assert!(init_args(&["a", "b"]).check().is_err());
+    assert!(init_args(&["a"]).check().is_ok());
+    assert!(init_args(&[]).check().is_ok());
 }
 
 #[test]

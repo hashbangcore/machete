@@ -80,6 +80,7 @@ impl BuildArgs {
     pub fn check(&self) -> Result<(), BuildError> {
         if self.paths.len() > 2 {
             return Err(BuildError::TooManyPaths {
+                command: "build",
                 given: self.paths.len(),
             });
         }
@@ -88,15 +89,43 @@ impl BuildArgs {
 }
 
 /// Arguments for `machete init`.
+///
+/// Takes the directory as a bare path or as a flag, the same way `build` does.
+/// The flag wins. With neither, the site is written to the current directory.
 #[derive(Debug, Args)]
 pub struct InitArgs {
     /// Directory to create the new site in.
+    #[arg(value_name = "PATH")]
+    pub paths: Vec<PathBuf>,
+
+    /// Directory to create the new site in.
     #[arg(short, long, value_name = "DIR")]
-    pub output: PathBuf,
+    pub output: Option<PathBuf>,
 
     /// Overwrite files that already exist instead of leaving them untouched.
     #[arg(short, long)]
     pub force: bool,
+}
+
+impl InitArgs {
+    /// Returns the directory to write the site into.
+    pub fn target(&self) -> PathBuf {
+        self.output
+            .clone()
+            .or_else(|| self.paths.first().cloned())
+            .unwrap_or_else(|| PathBuf::from("."))
+    }
+
+    /// Fails when more than one bare path is given.
+    pub fn check(&self) -> Result<(), BuildError> {
+        if self.paths.len() > 1 {
+            return Err(BuildError::TooManyPaths {
+                command: "init",
+                given: self.paths.len(),
+            });
+        }
+        Ok(())
+    }
 }
 
 /// Arguments for `machete completions`.
@@ -119,7 +148,10 @@ pub fn run(cli: Cli) -> Result<(), BuildError> {
             let config = Config::load(&root)?;
             build(&config, &config.output_dir(args.output()), args.force)
         }
-        Command::Init(args) => write_scaffold(&args.output, args.force),
+        Command::Init(args) => {
+            args.check()?;
+            write_scaffold(&args.target(), args.force)
+        }
         Command::Completions(args) => completions(args),
     }
 }

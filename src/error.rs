@@ -142,8 +142,8 @@ pub enum BuildError {
     NotASite { root: PathBuf, expected: PathBuf },
     /// The site has templates but no pages to build.
     NoPages { templates: PathBuf },
-    /// More bare paths were given than `build` accepts.
-    TooManyPaths { given: usize },
+    /// More bare paths were given than the command accepts.
+    TooManyPaths { command: &'static str, given: usize },
     /// A filesystem operation failed.
     Io(IoError),
     /// `config.toml` could not be parsed.
@@ -310,9 +310,12 @@ impl fmt::Display for BuildError {
             Self::NoPages { templates } => {
                 write!(f, "no pages to build in {}", templates.display())
             }
-            Self::TooManyPaths { given } => {
-                write!(f, "build takes at most two paths, {given} were given")
-            }
+            Self::TooManyPaths { command, given } => write!(
+                f,
+                "{command} takes at most {} path{}, {given} were given",
+                if *command == "init" { 1 } else { 2 },
+                if *command == "init" { "" } else { "s" }
+            ),
             Self::Io(error) => write!(f, "{error}"),
             Self::Config { path, source } => {
                 write!(f, "failed to parse {}: {source}", path.display())
