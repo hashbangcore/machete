@@ -271,7 +271,10 @@ fn a_data_block_outside_a_component_is_reported() {
 }
 
 #[test]
-fn a_site_without_config_still_builds() {
+fn a_directory_without_a_config_is_not_a_project() {
+    // machete.toml is what identifies a directory as a machete project.
+    // Without it, a forgotten variable would be blamed instead of the missing
+    // file that caused it.
     let workspace = Workspace::new("build-no-config");
     workspace.write(
         "templates/layout.html",
@@ -279,13 +282,21 @@ fn a_site_without_config_still_builds() {
     );
     workspace.write(
         "templates/index.html",
-        "<html type=\"layout\"/>\n<main>x</main>\n",
+        "<html type=\"layout\"/>\n<main>{title}</main>\n",
     );
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    let error = Config::load(&workspace.path).expect_err("no config");
+    assert!(matches!(error, BuildError::NoConfig { .. }));
 
-    assert!(workspace.read("out/index.html").contains("<main>x</main>"));
+    let message = error.to_string();
+    assert!(message.contains("machete.toml"), "message was {message}");
+    assert!(message.contains("init"), "message was {message}");
+
+    assert!(
+        !out.join("index.html").exists(),
+        "nothing should be written"
+    );
 }
 
 #[test]
@@ -370,21 +381,34 @@ fn copy_scaffold(from: &Path, to: &Path) {
 
 #[test]
 fn an_input_without_templates_is_reported() {
-    // Pointing -i at templates/ instead of the site root is the easy mistake
-    // to make, and it used to produce an empty output and exit successfully.
+    // Pointing at templates/ instead of the site root is the easy mistake to
+    // make, and it used to produce an empty output and exit successfully.
+    // Here the inner directory holds the config, so what is missing is the
+    // templates/ below it.
     let workspace = Workspace::new("build-wrong-input");
+    workspace.write("templates/machete.toml", "title = \"x\"\n");
+
+    let inner = workspace.join("templates");
+    let error = Config::load(&inner).expect_err("not a site");
+    assert!(matches!(error, BuildError::NotASite { .. }));
+    let message = error.to_string();
+    assert!(message.contains("not a site"), "message was {message}");
+    assert!(message.contains("templates"), "message was {message}");
+}
+
+#[test]
+fn pointing_at_the_templates_directory_is_reported_as_no_config() {
+    // The likelier mistake is naming templates/ as the input, which now fails
+    // on the missing config rather than on the missing templates.
+    let workspace = Workspace::new("build-wrong-input-2");
     workspace.write("machete.toml", "title = \"x\"\n");
     workspace.write(
         "templates/index.html",
         "<html type=\"layout\"/>\n<main>y</main>\n",
     );
 
-    let templates = workspace.join("templates");
-    let error = Config::load(&templates).expect_err("not a site");
-    assert!(matches!(error, BuildError::NotASite { .. }));
-    let message = format!("{error}");
-    assert!(message.contains("not a site"), "message was {message}");
-    assert!(message.contains("templates"), "message was {message}");
+    let error = Config::load(&workspace.join("templates")).expect_err("no config");
+    assert!(matches!(error, BuildError::NoConfig { .. }));
 }
 
 #[test]

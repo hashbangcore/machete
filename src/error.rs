@@ -11,8 +11,11 @@ use std::fmt;
 use std::io;
 use std::path::PathBuf;
 
-/// The directory a site keeps its pages in, named in the message above.
+/// The directory a site keeps its pages in, named in the messages above.
 const TEMPLATES: &str = "templates";
+
+/// The file that identifies a directory as a machete project.
+const CONFIG_FILE: &str = "machete.toml";
 
 /// Raised when the source cannot be split into tokens.
 #[derive(Debug)]
@@ -138,6 +141,8 @@ pub struct IoError {
 /// Raised when a filesystem operation cannot be completed.
 #[derive(Debug)]
 pub enum BuildError {
+    /// The directory has no `machete.toml`, so it is not a machete project.
+    NoConfig { root: PathBuf },
     /// The input directory is not a site: it holds no `templates/`.
     NotASite { root: PathBuf, expected: PathBuf },
     /// The site has templates but no pages to build.
@@ -234,7 +239,11 @@ impl fmt::Display for ScopeError {
 impl fmt::Display for SubstError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::UndefinedVariable { name } => write!(f, "variable '{name}' is not defined"),
+            Self::UndefinedVariable { name } => write!(
+                f,
+                "variable '{name}' is not defined. Set it in {CONFIG_FILE}, \
+                 or pass it to the component as an attribute"
+            ),
         }
     }
 }
@@ -300,6 +309,13 @@ impl fmt::Display for IoError {
 impl fmt::Display for BuildError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::NoConfig { root } => write!(
+                f,
+                "{} has no {CONFIG_FILE}, so it is not a machete project. \
+                 Run `machete init` here to create one, or point the input at \
+                 a directory that has one",
+                root.display()
+            ),
             Self::NotASite { root, expected } => write!(
                 f,
                 "{} is not a site: it has no {}. Build from the directory holding {}",

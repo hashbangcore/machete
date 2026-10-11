@@ -298,15 +298,19 @@ const PATHS: &str = "paths";
 impl Config {
     /// Reads `machete.toml` from `root` and resolves the site directories.
     ///
-    /// A missing `machete.toml` is not an error: a site may define everything in
-    /// its pages, and the globals are simply empty. A missing `templates/` is an
-    /// error, because a site with no templates has nothing to build and the
-    /// mistake is far more often a wrong `-i` than an empty site.
+    /// The file is what identifies the directory as a machete project, so a
+    /// missing one is an error rather than an empty set of globals. Without
+    /// that, a forgotten `title` would be reported as an undefined variable and
+    /// the real cause, a missing config file, would stay hidden.
     pub fn load(root: &Path) -> Result<Self, BuildError> {
         let path = root.join(CONFIG_FILE);
         let (globals, output) = match std::fs::read_to_string(&path) {
             Ok(text) => parse_config(&text, &path)?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (Bindings::new(), None),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err(BuildError::NoConfig {
+                    root: root.to_path_buf(),
+                });
+            }
             Err(source) => return Err(BuildError::Io(IoError::new("read", path, source))),
         };
 

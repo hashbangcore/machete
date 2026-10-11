@@ -96,8 +96,10 @@ ones in `layouts/`, and the component definitions in `partials/`. A page keeps
 the directory it sits in, so `templates/blog/post.html` is written to
 `public/blog/post.html`.
 
-`machete.toml` is what identifies the directory as a machete project. Machete
-ignores a `config.toml` that belongs to some other tool.
+`machete.toml` is what identifies the directory as a machete project. Building a
+directory without one is an error rather than a build with empty globals, so a
+forgotten variable is never reported when the real cause is a missing file.
+Machete ignores a `config.toml` that belongs to some other tool.
 
 ## Components
 
@@ -305,12 +307,13 @@ Machete stops rather than writing a page half-rendered.
 - A `<script type="data">` outside a component
 - A tag left open, or written self-closing when the HTML standard says it is not
 - An `input:output` with no colon, or with more than one
+- An input directory with no `machete.toml` in it
 - An input directory with no `templates/` inside it
 
 ## Development
 
 ```
-cargo test              # 124 tests
+cargo test              # 125 tests
 cargo clippy --all-targets
 cargo fmt
 just build              # build the scaffold into ./outputs/build-example

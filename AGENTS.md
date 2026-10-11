@@ -17,6 +17,8 @@ Queda fuera de su alcance:
 
 El proyecto utiliza un fichero `machete.toml` para definir las rutas y las variables globales.
 
+La presencia de ese fichero es lo que identifica el directorio como un proyecto de Machete. Si falta, `machete build` informa de ello en lugar de seguir adelante con las variables vacías: de otro modo, una variable olvidada se reportaría como si estuviera mal definida y la causa real quedaría oculta.
+
 Estructura propuesta:
 
 ```
