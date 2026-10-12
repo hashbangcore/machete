@@ -6,11 +6,11 @@
 //!
 //! [`Config`] is here for the same reason: reading `machete.toml` is I/O.
 
-use crate::compose::{self, Defs, apply_layout, extract_layout};
+use crate::compose::{self, apply_layout, extract_layout, Defs};
 use crate::error::{BuildError, ExpandError, IoError, LayoutError};
 use crate::html::{parse, render};
 use crate::node::Node;
-use crate::vars::{Bindings, Scope, substitute};
+use crate::vars::{substitute, Bindings, Scope};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -660,27 +660,27 @@ fn scaffold_files() -> Vec<ScaffoldFile> {
     vec![
         ScaffoldFile {
             path: "machete.toml",
-            contents: include_str!("../scaffold/machete.toml"),
+            contents: include_str!("../docs/scaffold/machete.toml"),
         },
         ScaffoldFile {
             path: "templates/layout.html",
-            contents: include_str!("../scaffold/templates/layout.html"),
+            contents: include_str!("../docs/scaffold/templates/layout.html"),
         },
         ScaffoldFile {
             path: "templates/index.html",
-            contents: include_str!("../scaffold/templates/index.html"),
+            contents: include_str!("../docs/scaffold/templates/index.html"),
         },
         ScaffoldFile {
             path: "templates/partials/head.html",
-            contents: include_str!("../scaffold/templates/partials/head.html"),
+            contents: include_str!("../docs/scaffold/templates/partials/head.html"),
         },
         ScaffoldFile {
             path: "templates/partials/aside-component.html",
-            contents: include_str!("../scaffold/templates/partials/aside-component.html"),
+            contents: include_str!("../docs/scaffold/templates/partials/aside-component.html"),
         },
         ScaffoldFile {
             path: "templates/partials/figure.html",
-            contents: include_str!("../scaffold/templates/partials/figure.html"),
+            contents: include_str!("../docs/scaffold/templates/partials/figure.html"),
         },
     ]
 }
