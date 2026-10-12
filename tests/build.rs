@@ -6,7 +6,7 @@
 //! output.
 
 use machete::build::build;
-use machete::build::{Config, Overrides, write_scaffold as write};
+use machete::build::{write_scaffold as write, Config, Overrides};
 use machete::error::BuildError;
 use std::path::{Path, PathBuf};
 
@@ -130,11 +130,9 @@ fn a_component_may_take_content() {
     let out = workspace.join("out");
     build(&workspace.site(), &out, false).expect("the build succeeds");
 
-    assert!(
-        workspace
-            .read("out/index.html")
-            .contains("<figure><p>dentro</p></figure>")
-    );
+    assert!(workspace
+        .read("out/index.html")
+        .contains("<figure><p>dentro</p></figure>"));
 }
 
 #[test]
@@ -343,7 +341,7 @@ fn the_generated_site_builds_to_the_same_page() {
     let from_repo = Workspace::new("roundtrip-repo");
 
     write(&from_init.path, true).expect("init writes the scaffold");
-    copy_scaffold(Path::new("scaffold"), &from_repo.path);
+    copy_scaffold(Path::new("docs/scaffold"), &from_repo.path);
 
     let a = from_init.join("out");
     let b = from_repo.join("out");
@@ -564,11 +562,9 @@ fn layout_data_overrides_the_base() {
 
     let about = workspace.read("out/about.html");
     assert!(about.contains("<main>about|es</main>"), "page was {about}");
-    assert!(
-        workspace
-            .read("out/index.html")
-            .contains("<main>base|es</main>")
-    );
+    assert!(workspace
+        .read("out/index.html")
+        .contains("<main>base|es</main>"));
 }
 
 #[test]
@@ -606,16 +602,12 @@ fn layouts_do_not_inherit_from_each_other() {
     let out = workspace.join("out");
     build(&workspace.site(), &out, false).expect("the build succeeds");
 
-    assert!(
-        workspace
-            .read("out/about.html")
-            .contains("<main>about|es</main>")
-    );
-    assert!(
-        workspace
-            .read("out/gallery.html")
-            .contains("<main>gallery|es</main>")
-    );
+    assert!(workspace
+        .read("out/about.html")
+        .contains("<main>about|es</main>"));
+    assert!(workspace
+        .read("out/gallery.html")
+        .contains("<main>gallery|es</main>"));
 }
 
 #[test]
