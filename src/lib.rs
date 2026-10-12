@@ -26,6 +26,7 @@
 //! - [`html`] parses and renders documents.
 //! - [`vars`] resolves variable values.
 //! - [`compose`] combines components and applies layouts.
+//! - [`sitemap`] renders the sitemap from the pages a build wrote.
 
 pub mod build;
 pub mod cli;
@@ -33,6 +34,7 @@ pub mod compose;
 pub mod error;
 pub mod html;
 pub mod node;
+pub mod sitemap;
 pub mod vars;
 
 pub use build::{Config, write_scaffold};

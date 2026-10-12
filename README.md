@@ -301,6 +301,10 @@ public = "public"
 templates = "plantillas"
 ```
 
+`[build]` takes one key that is not a directory: `url`, the address the site is
+published at. It is what makes a sitemap possible, together with `sitemap`,
+which turns it off. See [Sitemap](#sitemap).
+
 Local variables belong to a single component invocation, through its attributes
 or its data block. They do not change the globals.
 
@@ -346,6 +350,59 @@ Ordinary JavaScript and CSS are preserved untouched. A `{` inside a `<script>`
 or a `<style>` belongs to that language, not to Machete. A `<title>` or a
 `<textarea>` also holds raw text, but its braces are prose, so they resolve
 like any other.
+
+## Sitemap
+
+With a `url` in `[build]`, the build also writes `public/sitemap.xml`:
+
+```toml
+[build]
+url = "https://ejemplo.com"
+```
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://ejemplo.com/</loc>
+  </url>
+  <url>
+    <loc>https://ejemplo.com/about.html</loc>
+  </url>
+</urlset>
+```
+
+The `url` is required because the protocol asks for absolute addresses and
+Machete cannot know where the site lives without being told. Without it no
+sitemap is written at all, rather than one holding relative paths, which would
+be rejected.
+
+A site can also turn it off:
+
+```toml
+[build]
+url = "https://ejemplo.com"
+sitemap = false
+```
+
+`sitemap` is on by default and only takes a boolean. Anything else, such as `0`
+or `"no"`, fails the build: turning it off is what the key is for, so reading
+any other value as "on" would be the opposite of what was written.
+
+A page is listed at the address it is served from, so `index.html` becomes `/`
+and `blog/index.html` becomes `/blog/`. Other pages keep their name, extension
+included: Machete does not produce clean URLs. Static files are not listed,
+they are part of the site but not things a search engine indexes.
+
+To keep a page out, ask in the page itself:
+
+```html
+<head><meta name="robots" content="noindex"></head>
+```
+
+It is still written to disk, it is just not advertised. The tag is looked for in
+the finished page, so one coming from a component counts as much as one written
+by hand.
 
 ## What fails a build
 

@@ -6,17 +6,24 @@
 //!
 //! [`Config`] is here for the same reason: reading `machete.toml` is I/O.
 
-use crate::compose::{self, apply_layout, extract_layout, Defs};
+use crate::compose::{self, Defs, apply_layout, extract_layout};
 use crate::error::{BuildError, ExpandError, IoError, LayoutError};
 use crate::html::{parse, render};
 use crate::node::Node;
-use crate::vars::{substitute, Bindings, Scope};
+use crate::sitemap;
+use crate::vars::{Bindings, Scope, substitute};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 /// How deep to walk when looking for pages.
 const MAX_DEPTH: usize = 16;
+
+/// The page that stands for the root of the output directory.
+const INDEX: &str = "index.html";
+
+/// The file a sitemap is written to.
+const SITEMAP: &str = "sitemap.xml";
 
 /// Reads every page from `config` and writes the finished HTML into `output`.
 ///
@@ -44,14 +51,47 @@ pub fn build(config: &Config, output: &Path, force: bool) -> Result<(), BuildErr
         });
     }
 
+    // The paths are recorded as the pages are written rather than worked out a
+    // second time for the sitemap, so the two cannot disagree about what exists.
+    let mut written = Vec::new();
+
     for path in pages {
+        let relative = relative_output_path(&path, &config.templates);
         let page = build_page(config, &defs, &path)?;
-        write_page(output, &path, &config.templates, &page)?;
+        write_page(output, &relative, &page.html)?;
+
+        if page.indexable {
+            written.push(relative);
+        }
     }
 
     copy_assets(config, output)?;
+    write_sitemap(config, output, &written)?;
 
     Ok(())
+}
+
+/// Writes `sitemap.xml` when the site says where it is published.
+///
+/// A site without a URL gets nothing. There would be no absolute address to
+/// write, and a sitemap of relative paths would be worse than no sitemap: it
+/// would be rejected. This runs after the assets so that it wins over an
+/// `assets/sitemap.xml` the site may carry of its own.
+fn write_sitemap(config: &Config, output: &Path, pages: &[PathBuf]) -> Result<(), BuildError> {
+    // Checked before the URL: turning the sitemap off is an explicit choice,
+    // so there is nothing to look for once it has been made.
+    if !config.sitemap {
+        return Ok(());
+    }
+
+    let Some(base) = config.url.as_deref() else {
+        return Ok(());
+    };
+
+    let target = output.join(SITEMAP);
+
+    fs::write(&target, sitemap::render(base, pages))
+        .map_err(|source| BuildError::Io(IoError::new("write", &target, source)))
 }
 
 /// Copies every file under `config.assets` into `output`, unchanged.
@@ -98,8 +138,15 @@ fn copy_assets(config: &Config, output: &Path) -> Result<(), BuildError> {
     Ok(())
 }
 
-/// Builds one page and returns the HTML to write.
-fn build_page(config: &Config, defs: &Defs, path: &Path) -> Result<String, BuildError> {
+/// One finished page: the HTML to write, and whether a search engine should be
+/// told about it.
+struct Page {
+    html: String,
+    indexable: bool,
+}
+
+/// Builds one page and returns what to write for it.
+fn build_page(config: &Config, defs: &Defs, path: &Path) -> Result<Page, BuildError> {
     let parsed = read_page(path)?;
 
     let extracted = extract_layout(parsed).map_err(|source| BuildError::Layout {
@@ -144,7 +191,49 @@ fn build_page(config: &Config, defs: &Defs, path: &Path) -> Result<String, Build
         source,
     })?;
 
-    Ok(render(&page))
+    Ok(Page {
+        html: render(&page),
+        indexable: is_indexable(&page),
+    })
+}
+
+/// Reports whether a page asks to be indexed.
+///
+/// A page carrying `<meta name="robots" content="noindex">` is written but left
+/// out of the sitemap. The tag is looked for in the finished tree, after
+/// components have been expanded and variables resolved, so one added by a
+/// component or produced by a variable counts as much as one written by hand.
+fn is_indexable(node: &Node) -> bool {
+    let mut indexable = true;
+
+    walk(node, &mut |current| {
+        if !indexable {
+            return;
+        }
+
+        let Some(element) = current.as_element() else {
+            return;
+        };
+
+        if element.name != "meta" {
+            return;
+        }
+
+        let robots = element
+            .attr("name")
+            .is_some_and(|name| name.eq_ignore_ascii_case("robots"));
+        let noindex = element.attr("content").is_some_and(|content| {
+            content
+                .split([',', ' ', '\t', '\n', '\r'])
+                .any(|token| token.eq_ignore_ascii_case("noindex"))
+        });
+
+        if robots && noindex {
+            indexable = false;
+        }
+    });
+
+    indexable
 }
 
 /// Fails when any construction of Machete is still present.
@@ -198,22 +287,23 @@ fn read_page(path: &Path) -> Result<Node, BuildError> {
     })
 }
 
-/// Writes one page, creating the directories its relative path needs.
-fn write_page(
-    output: &Path,
-    source: &Path,
-    templates: &Path,
-    html: &str,
-) -> Result<(), BuildError> {
-    // Keep the directory a page sits in, so `templates/blog/post.html` lands in
-    // `public/blog/post.html` rather than colliding with `post.html` at the root.
+/// The path a page takes inside the output directory, relative to it.
+///
+/// Keeps the directory a page sits in, so `templates/blog/post.html` lands in
+/// `public/blog/post.html` rather than colliding with `post.html` at the root.
+fn relative_output_path(source: &Path, templates: &Path) -> PathBuf {
     let relative = source.strip_prefix(templates).unwrap_or(source);
 
-    let target = if relative.as_os_str().is_empty() {
-        output.join("index.html")
+    if relative.as_os_str().is_empty() {
+        PathBuf::from(INDEX)
     } else {
-        output.join(relative)
-    };
+        relative.to_path_buf()
+    }
+}
+
+/// Writes one page, creating the directories its relative path needs.
+fn write_page(output: &Path, relative: &Path, html: &str) -> Result<(), BuildError> {
+    let target = output.join(relative);
 
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent)
@@ -350,6 +440,18 @@ pub struct Config {
     pub assets: PathBuf,
     /// Where the built pages go, relative to the root.
     pub output: PathBuf,
+    /// Where the site is published, as `https://example.com`.
+    ///
+    /// A sitemap is only meaningful with it, because the protocol asks for
+    /// absolute URLs. Without this the build writes no sitemap.
+    pub url: Option<String>,
+    /// Whether to write a sitemap, on unless the site turns it off.
+    ///
+    /// Kept separate from [`Self::url`] because the two answer different
+    /// questions: this says whether to write one, that says where the site
+    /// lives. Turning the sitemap off works either way; publishing it needs
+    /// both.
+    pub sitemap: bool,
     /// Variables from `[data]`, available to every page, layout and component.
     pub data: Bindings,
     /// Variables from `[data.<layout>]`, each merged over `[data]`.
@@ -435,6 +537,8 @@ impl Config {
                 .or(parsed.dirs.public.as_deref())
                 .unwrap_or(Path::new(DEFAULT_OUTPUT))
                 .to_path_buf(),
+            url: parsed.dirs.url,
+            sitemap: parsed.dirs.sitemap.unwrap_or(true),
             data: parsed.data,
             layout_data: parsed.layout_data,
             metadata: parsed.metadata,
@@ -466,6 +570,8 @@ impl Config {
                 .dirs
                 .public
                 .unwrap_or_else(|| PathBuf::from(DEFAULT_OUTPUT)),
+            url: parsed.dirs.url,
+            sitemap: parsed.dirs.sitemap.unwrap_or(true),
             data: parsed.data,
             layout_data: parsed.layout_data,
             metadata: parsed.metadata,
@@ -508,7 +614,7 @@ fn parse_config(text: &str, path: &Path) -> Result<Parsed, BuildError> {
 
     for (key, value) in table {
         match key.as_str() {
-            BUILD => read_build(&value, &mut parsed.dirs),
+            BUILD => read_build(&value, &mut parsed.dirs)?,
 
             DATA => read_data(&value, &mut parsed)?,
 
@@ -538,29 +644,63 @@ struct Dirs {
     public: Option<PathBuf>,
     templates: Option<PathBuf>,
     assets: Option<PathBuf>,
+    url: Option<String>,
+    sitemap: Option<bool>,
 }
 
-/// Reads the directory names out of `[build]`.
+/// Reads the paths out of `[build]`.
 ///
 /// Each one is optional and falls back to its default, so a site only writes
 /// what it wants to change. `[build]` itself may be absent entirely.
-fn read_build(value: &toml::Value, dirs: &mut Dirs) {
+fn read_build(value: &toml::Value, dirs: &mut Dirs) -> Result<(), BuildError> {
     let Some(table) = value.as_table() else {
-        return;
+        return Ok(());
     };
 
     for (key, value) in table {
-        let slot = match key.as_str() {
-            "public" => &mut dirs.public,
-            "templates" => &mut dirs.templates,
-            "assets" => &mut dirs.assets,
-            _ => continue,
-        };
-
         let name = scalar(value.clone());
-        if !name.is_empty() {
-            *slot = Some(PathBuf::from(name));
+
+        match key.as_str() {
+            "public" => set_dir(&mut dirs.public, &name),
+            "templates" => set_dir(&mut dirs.templates, &name),
+            "assets" => set_dir(&mut dirs.assets, &name),
+
+            // The one thing in `[build]` that is not a directory.
+            "url" => {
+                if !name.is_empty() {
+                    dirs.url = Some(name);
+                }
+            }
+
+            // The one thing in `[build]` that is not a path or a string.
+            "sitemap" => dirs.sitemap = Some(read_bool("sitemap", value)?),
+
+            _ => continue,
         }
+    }
+
+    Ok(())
+}
+
+/// Reads a boolean out of `[build]`, rejecting anything else.
+///
+/// Turning the sitemap off is the whole point of the key, so a value that is
+/// not a boolean is a mistake worth reporting rather than guessing at: `0` and
+/// `"no"` mean nothing here, and reading either as "on" would be the opposite
+/// of what the author wrote.
+fn read_bool(key: &'static str, value: &toml::Value) -> Result<bool, BuildError> {
+    value
+        .as_bool()
+        .ok_or_else(|| BuildError::InvalidBuildValue {
+            key,
+            found: value.to_string(),
+        })
+}
+
+/// Records a directory name, treating an empty one as unset.
+fn set_dir(slot: &mut Option<PathBuf>, name: &str) {
+    if !name.is_empty() {
+        *slot = Some(PathBuf::from(name));
     }
 }
 
@@ -737,5 +877,41 @@ mod tests {
     fn a_foreign_structure_does_not_stop_the_parse() {
         let config = parse("[ci]\nrun = \"x\"\n\n[data]\ntitle = \"t\"\n");
         assert_eq!(config.data.get("title").map(String::as_str), Some("t"));
+    }
+
+    #[test]
+    fn the_sitemap_is_on_unless_the_site_says_otherwise() {
+        let config = parse("[build]\nurl = \"https://ejemplo.com\"\n");
+        assert!(config.sitemap);
+    }
+
+    #[test]
+    fn the_sitemap_can_be_turned_off() {
+        let config = parse("[build]\nurl = \"https://ejemplo.com\"\nsitemap = false\n");
+        assert!(!config.sitemap);
+    }
+
+    #[test]
+    fn turning_the_sitemap_off_leaves_the_url_alone() {
+        let config = parse("[build]\nurl = \"https://ejemplo.com\"\nsitemap = false\n");
+        assert_eq!(config.url.as_deref(), Some("https://ejemplo.com"));
+    }
+
+    #[test]
+    fn a_sitemap_value_that_is_not_a_boolean_is_reported() {
+        for text in [
+            "[build]\nsitemap = \"no\"\n",
+            "[build]\nsitemap = 0\n",
+            "[build]\nsitemap = \"false\"\n",
+        ] {
+            let error = match parse_config(text, Path::new("x")) {
+                Err(error) => error,
+                Ok(_) => panic!("expected a bad-build-value error for {text}"),
+            };
+            assert!(matches!(
+                error,
+                BuildError::InvalidBuildValue { key: "sitemap", .. }
+            ));
+        }
     }
 }

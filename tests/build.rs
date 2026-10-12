@@ -6,7 +6,7 @@
 //! output.
 
 use machete::build::build;
-use machete::build::{write_scaffold as write, Config, Overrides};
+use machete::build::{Config, Overrides, write_scaffold as write};
 use machete::error::BuildError;
 use std::path::{Path, PathBuf};
 
@@ -130,9 +130,11 @@ fn a_component_may_take_content() {
     let out = workspace.join("out");
     build(&workspace.site(), &out, false).expect("the build succeeds");
 
-    assert!(workspace
-        .read("out/index.html")
-        .contains("<figure><p>dentro</p></figure>"));
+    assert!(
+        workspace
+            .read("out/index.html")
+            .contains("<figure><p>dentro</p></figure>")
+    );
 }
 
 #[test]
@@ -562,9 +564,11 @@ fn layout_data_overrides_the_base() {
 
     let about = workspace.read("out/about.html");
     assert!(about.contains("<main>about|es</main>"), "page was {about}");
-    assert!(workspace
-        .read("out/index.html")
-        .contains("<main>base|es</main>"));
+    assert!(
+        workspace
+            .read("out/index.html")
+            .contains("<main>base|es</main>")
+    );
 }
 
 #[test]
@@ -602,12 +606,16 @@ fn layouts_do_not_inherit_from_each_other() {
     let out = workspace.join("out");
     build(&workspace.site(), &out, false).expect("the build succeeds");
 
-    assert!(workspace
-        .read("out/about.html")
-        .contains("<main>about|es</main>"));
-    assert!(workspace
-        .read("out/gallery.html")
-        .contains("<main>gallery|es</main>"));
+    assert!(
+        workspace
+            .read("out/about.html")
+            .contains("<main>about|es</main>")
+    );
+    assert!(
+        workspace
+            .read("out/gallery.html")
+            .contains("<main>gallery|es</main>")
+    );
 }
 
 #[test]
@@ -759,6 +767,258 @@ fn the_assets_directory_comes_from_the_configuration() {
     build(&workspace.site(), &out, false).expect("the build succeeds");
 
     assert!(out.join("estilo.css").exists());
+}
+
+/// Returns the `<loc>` values a sitemap lists, in order.
+fn locations(sitemap: &str) -> Vec<String> {
+    sitemap
+        .lines()
+        .filter(|line| line.contains("<loc>"))
+        .map(|line| {
+            line.trim()
+                .trim_start_matches("<loc>")
+                .trim_end_matches("</loc>")
+                .to_string()
+        })
+        .collect()
+}
+
+#[test]
+fn a_url_in_the_configuration_writes_a_sitemap() {
+    let workspace = Workspace::new("sitemap-basic");
+    minimal_site(&workspace);
+    workspace.write(
+        "machete.toml",
+        "[data]\ntitle = \"t\"\n\n[build]\nurl = \"https://ejemplo.com\"\n",
+    );
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out, false).expect("the build succeeds");
+
+    let sitemap = workspace.read("out/sitemap.xml");
+    assert!(
+        sitemap.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"),
+        "was {sitemap}"
+    );
+    assert_eq!(locations(&sitemap), ["https://ejemplo.com/"]);
+}
+
+#[test]
+fn a_site_without_a_url_writes_no_sitemap() {
+    let workspace = Workspace::new("sitemap-absent");
+    minimal_site(&workspace);
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out, false).expect("the build succeeds");
+
+    assert!(out.join("index.html").exists(), "the page is still written");
+    assert!(!out.join("sitemap.xml").exists(), "no sitemap is written");
+}
+
+#[test]
+fn the_sitemap_can_be_turned_off_in_the_configuration() {
+    let workspace = Workspace::new("sitemap-off");
+    minimal_site(&workspace);
+    workspace.write(
+        "machete.toml",
+        "[data]\ntitle = \"t\"\n\n[build]\nurl = \"https://ejemplo.com\"\nsitemap = false\n",
+    );
+    workspace.write(
+        "templates/about.html",
+        "<html type=\"layout\"/><main>acerca</main>\n",
+    );
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out, false).expect("the build succeeds");
+
+    assert!(
+        out.join("index.html").exists(),
+        "the pages are still written"
+    );
+    assert!(
+        out.join("about.html").exists(),
+        "every page is still written"
+    );
+    assert!(!out.join("sitemap.xml").exists(), "no sitemap is written");
+}
+
+#[test]
+fn the_sitemap_lists_every_page_at_the_address_it_is_served_from() {
+    let workspace = Workspace::new("sitemap-pages");
+    minimal_site(&workspace);
+    workspace.write(
+        "machete.toml",
+        "[data]\ntitle = \"t\"\n\n[build]\nurl = \"https://ejemplo.com\"\n",
+    );
+    workspace.write(
+        "templates/about.html",
+        "<html type=\"layout\"/><main>acerca</main>\n",
+    );
+    workspace.write(
+        "templates/blog/post.html",
+        "<html type=\"layout\"/><main>entrada</main>\n",
+    );
+    workspace.write(
+        "templates/blog/index.html",
+        "<html type=\"layout\"/><main>blog</main>\n",
+    );
+    workspace.write("assets/estilo.css", "h1 {}");
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out, false).expect("the build succeeds");
+
+    assert_eq!(
+        locations(&workspace.read("out/sitemap.xml")),
+        [
+            "https://ejemplo.com/about.html",
+            "https://ejemplo.com/blog/",
+            "https://ejemplo.com/blog/post.html",
+            "https://ejemplo.com/",
+        ]
+    );
+}
+
+#[test]
+fn the_sitemap_leaves_out_layouts_components_and_assets() {
+    let workspace = Workspace::new("sitemap-only-pages");
+    minimal_site(&workspace);
+    workspace.write(
+        "machete.toml",
+        "[data]\ntitle = \"t\"\n\n[build]\nurl = \"https://ejemplo.com\"\n",
+    );
+    workspace.write(
+        "templates/layouts/otro.html",
+        "<html><body><content/></body></html>\n",
+    );
+    workspace.write("templates/partials/pie.html", "<footer>pie</footer>");
+    workspace.write("assets/estilo.css", "h1 {}");
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out, false).expect("the build succeeds");
+
+    assert_eq!(
+        locations(&workspace.read("out/sitemap.xml")),
+        ["https://ejemplo.com/"]
+    );
+}
+
+#[test]
+fn a_page_asking_not_to_be_indexed_is_left_out_of_the_sitemap() {
+    let workspace = Workspace::new("sitemap-noindex");
+    minimal_site(&workspace);
+    workspace.write(
+        "machete.toml",
+        "[data]\ntitle = \"t\"\n\n[build]\nurl = \"https://ejemplo.com\"\n",
+    );
+    workspace.write(
+        "templates/404.html",
+        "<html type=\"layout\"/>\n<head><meta name=\"robots\" content=\"noindex\"></head>\n<main>no</main>\n",
+    );
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out, false).expect("the build succeeds");
+
+    assert!(out.join("404.html").exists(), "the page is still written");
+    assert_eq!(
+        locations(&workspace.read("out/sitemap.xml")),
+        ["https://ejemplo.com/"]
+    );
+}
+
+#[test]
+fn noindex_is_read_from_the_whole_content_attribute() {
+    let workspace = Workspace::new("sitemap-noindex-list");
+    minimal_site(&workspace);
+    workspace.write(
+        "machete.toml",
+        "[data]\ntitle = \"t\"\n\n[build]\nurl = \"https://ejemplo.com\"\n",
+    );
+    workspace.write(
+        "templates/a.html",
+        "<html type=\"layout\"/>\n<head><meta name=\"ROBOTS\" content=\"nofollow, NoIndex\"></head>\n<main>a</main>\n",
+    );
+    workspace.write(
+        "templates/b.html",
+        "<html type=\"layout\"/>\n<head><meta name=\"robots\" content=\"index, follow\"></head>\n<main>b</main>\n",
+    );
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out, false).expect("the build succeeds");
+
+    assert_eq!(
+        locations(&workspace.read("out/sitemap.xml")),
+        ["https://ejemplo.com/b.html", "https://ejemplo.com/"]
+    );
+}
+
+#[test]
+fn noindex_added_by_a_component_still_removes_the_page() {
+    let workspace = Workspace::new("sitemap-noindex-component");
+    workspace.write(
+        "machete.toml",
+        "[data]\ntitle = \"t\"\n\n[build]\nurl = \"https://ejemplo.com\"\n",
+    );
+    workspace.write(
+        "templates/layout.html",
+        "<!DOCTYPE html>\n<html>\n<body>\n<content/>\n</body>\n</html>\n",
+    );
+    workspace.write(
+        "templates/partials/cabeza.html",
+        "<meta name=\"robots\" content=\"noindex\">",
+    );
+    workspace.write(
+        "templates/index.html",
+        "<html type=\"layout\"/>\n<head><cabeza type=\"component\"/></head>\n<main>hola</main>\n",
+    );
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out, false).expect("the build succeeds");
+
+    assert!(out.join("index.html").exists());
+    assert_eq!(
+        locations(&workspace.read("out/sitemap.xml")),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_trailing_slash_in_the_url_does_not_produce_a_double_slash() {
+    let workspace = Workspace::new("sitemap-slash");
+    minimal_site(&workspace);
+    workspace.write(
+        "machete.toml",
+        "[data]\ntitle = \"t\"\n\n[build]\nurl = \"https://ejemplo.com/\"\n",
+    );
+    workspace.write(
+        "templates/about.html",
+        "<html type=\"layout\"/><main>acerca</main>\n",
+    );
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out, false).expect("the build succeeds");
+
+    assert_eq!(
+        locations(&workspace.read("out/sitemap.xml")),
+        ["https://ejemplo.com/about.html", "https://ejemplo.com/"]
+    );
+}
+
+#[test]
+fn the_sitemap_the_build_writes_wins_over_one_shipped_as_an_asset() {
+    let workspace = Workspace::new("sitemap-override");
+    minimal_site(&workspace);
+    workspace.write(
+        "machete.toml",
+        "[data]\ntitle = \"t\"\n\n[build]\nurl = \"https://ejemplo.com\"\n",
+    );
+    workspace.write("assets/sitemap.xml", "<urlset>obsoleto</urlset>");
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out, false).expect("the build succeeds");
+
+    let sitemap = workspace.read("out/sitemap.xml");
+    assert!(sitemap.contains("https://ejemplo.com/"), "was {sitemap}");
+    assert!(!sitemap.contains("obsoleto"), "was {sitemap}");
 }
 
 #[test]

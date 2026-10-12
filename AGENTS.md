@@ -235,6 +235,23 @@ Los recursos de `assets/` se copian a `public/` tal cual, conservando sus subdir
 
 Las líneas de comandos `-t` y `-a` cambian los directorios de plantillas y recursos, y tienen preferencia sobre el fichero.
 
+`[build]` admite una clave más, `url`, que no es una ruta sino la dirección pública del sitio:
+
+```toml
+[build]
+url = "https://ejemplo.com"
+```
+
+Es la única forma de obtener un sitemap, porque el protocolo exige direcciones absolutas y Machete, sin ella, no sabría dónde se publica el sitio. Junto a ella, `sitemap` permite apagarlo:
+
+```toml
+[build]
+url = "https://ejemplo.com"
+sitemap = false
+```
+
+Véase el capítulo 9.
+
 ### 4.3. Scope local
 
 Las variables locales se definen para cada componente mediante sus atributos o el componente especial `script`.
@@ -329,6 +346,7 @@ El procesamiento debe respetar estas reglas:
 5. Resolver las variables locales y globales, dando prioridad a las locales.
 6. Insertar el contenido en los marcadores `<content/>`.
 7. Generar los documentos HTML finales en el directorio de salida.
+8. Escribir el sitemap, si el sitio declara su dirección pública.
 
 El orden exacto de algunas operaciones internas queda sujeto a la implementación, siempre que se respeten las reglas de composición y alcance.
 
@@ -369,7 +387,28 @@ Por tanto, el código JavaScript ordinario debe conservarse para que otras herra
 
 El nombre de un componente es el nombre del fichero que lo contiene, sin extensión. Machete no valida esos nombres ni los de la etiqueta que lo invoca. Si el autor elige un nombre que HTML no considera válido, es una decisión suya y un linter puede avisar. Machete solo informa cuando el componente invocado no existe.
 
-## 9. Decisiones pendientes
+## 9. Sitemap
+
+El protocolo de sitemaps exige direcciones absolutas, de modo que el sitemap solo existe si `[build]` declara `url`. Sin ella, el build no escribe nada: un sitemap de rutas relativas sería peor que ninguno, porque se rechaza.
+
+El sitemap se escribe salvo que el sitio lo apague:
+
+```toml
+[build]
+url = "https://ejemplo.com"
+sitemap = false
+```
+
+`sitemap` viene en `true` y solo acepta un booleano. Un valor que no lo sea, como `0` o `"no"`, es un error: apagarlo es justo para lo que sirve la clave, y leer cualquiera de esos valores como «encendido» sería lo contrario de lo escrito.
+
+- Solo se listan páginas. Nunca layouts, definiciones de componentes ni recursos estáticos.
+- La URL de cada página es la dirección por la que se sirve: `index.html` es `/` y `blog/index.html` es `/blog/`. Las demás conservan su nombre con la extensión incluida, porque Machete no hace URLs limpias.
+- Una página con `<meta name="robots" content="noindex">` se escribe pero no se lista. Se busca en el árbol ya expandido, así que también cuenta la que añada un componente o una variable.
+- No se escribe `lastmod`. Es opcional en el protocolo y no hay una fecha fiable: cuándo se modificó la plantilla no dice si cambió la página que produce.
+
+El sitemap se escribe al final del build, después de copiar los recursos, para que prevalezca sobre un `assets/sitemap.xml` propio.
+
+## 10. Decisiones pendientes
 
 - El comportamiento ante variables inexistentes dentro del contenido insertado en un componente: si ese contenido ve las variables locales del componente o solo las globales.
 

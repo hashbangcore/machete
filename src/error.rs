@@ -151,6 +151,8 @@ pub enum BuildError {
     InvalidTarget { found: String, reason: &'static str },
     /// `[data]` nests further than one level, as in `[data.blog.post]`.
     NestedData { name: String },
+    /// A `[build]` key was given a value of the wrong kind.
+    InvalidBuildValue { key: &'static str, found: String },
     /// A filesystem operation failed.
     Io(IoError),
     /// `machete.toml` could not be parsed.
@@ -336,6 +338,9 @@ impl fmt::Display for BuildError {
                 "[data.{name}] nests a level too deep. \
                  Use [data] or [data.<layout>], where <layout> is one name"
             ),
+            Self::InvalidBuildValue { key, found } => {
+                write!(f, "'{key}' in [build] expects true or false, found {found}")
+            }
             Self::InvalidTarget { found, reason } => write!(
                 f,
                 "cannot read '{found}': {reason}. Expected input:output, \
