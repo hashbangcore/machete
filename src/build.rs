@@ -815,12 +815,12 @@ fn scaffold_files() -> Vec<ScaffoldFile> {
             contents: include_str!("../docs/scaffold/templates/partials/head.html"),
         },
         ScaffoldFile {
-            path: "templates/partials/aside-component.html",
-            contents: include_str!("../docs/scaffold/templates/partials/aside-component.html"),
+            path: "templates/partials/header.html",
+            contents: include_str!("../docs/scaffold/templates/partials/header.html"),
         },
         ScaffoldFile {
-            path: "templates/partials/figure.html",
-            contents: include_str!("../docs/scaffold/templates/partials/figure.html"),
+            path: "assets/css/style.css",
+            contents: include_str!("../docs/scaffold/assets/css/style.css"),
         },
     ]
 }
