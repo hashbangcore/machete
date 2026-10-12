@@ -84,14 +84,41 @@ fn the_output_holds_no_machete_markup() {
     build(&workspace.site(), &out, false).expect("the build succeeds");
 
     let page = workspace.read("out/index.html");
-    for marker in [
-        "<content",
-        "type=\"component\"",
-        "type=\"data\"",
-        "type=\"layout\"",
-    ] {
-        assert!(!page.contains(marker), "{marker} survived in {page}");
+
+    assert!(!page.contains("<content"), "<content survived in {page}");
+
+    for attribute in ["type=\"component\"", "type=\"data\"", "type=\"layout\""] {
+        assert!(
+            !inside_a_tag(&page, attribute),
+            "{attribute} survived in {page}"
+        );
     }
+}
+
+/// Reports whether any real element in `page` carries `attribute`.
+///
+/// A `<` written in prose comes out escaped, so the scaffold can talk about
+/// `type="data"` in plain text and it will arrive as `&lt;script type="data"&gt;`,
+/// which is inert. Only an unescaped `<` opens a tag, so the attribute is
+/// looked for between a `<` and the `>` that closes it.
+fn inside_a_tag(page: &str, attribute: &str) -> bool {
+    let mut start = 0;
+
+    while let Some(offset) = page[start..].find('<') {
+        let open = start + offset;
+
+        let Some(length) = page[open..].find('>') else {
+            return false;
+        };
+
+        if page[open..open + length].contains(attribute) {
+            return true;
+        }
+
+        start = open + length + 1;
+    }
+
+    false
 }
 
 #[test]
@@ -310,6 +337,8 @@ fn init_writes_every_scaffold_file() {
         "templates/layout.html",
         "templates/index.html",
         "templates/partials/head.html",
+        "templates/partials/header.html",
+        "assets/css/style.css",
     ] {
         assert!(workspace.join(relative).exists(), "{relative} is missing");
     }
@@ -377,6 +406,11 @@ fn copy_scaffold(from: &Path, to: &Path) {
         let entry = entry.expect("reads an entry");
         std::fs::copy(entry.path(), target.join(entry.file_name())).expect("copies a partial");
     }
+
+    let css = to.join("assets/css");
+    std::fs::create_dir_all(&css).expect("creates the assets directory");
+    std::fs::copy(from.join("assets/css/style.css"), css.join("style.css"))
+        .expect("copies the stylesheet");
 }
 
 #[test]
