@@ -1,26 +1,40 @@
 <html type="layout"/>
 
-<main>
-  <h1>lorem</h1>
-  <p>
-    Lorem ipsum dolor sit amet consectetur adipisicing elit.
-    Eligendi nesciunt voluptatum adipisci nihil sit inventore
-    maiores illum delectus nostrum dignissimos dolores,
-    ab tenetur odit repellat mollitia animi recusandae provident hic.
-  </p>
+<!-- Un componente que recibe sus variables de un bloque script. El bloque no
+     es JavaScript: solo la sintaxis que el editor ya resalta. -->
+<header type="component">
+  <script type="data">
+    marca = "Machete";
+    titulo = "Modulariza el HTML y genera páginas web";
+    lema = "Un sitio hecho de componentes, layouts y variables. Sin bucles, sin condicionales y sin ejecutar JavaScript.";
+  </script>
+</header>
 
-  <aside-component type="component">
-    <script type="data">
-      title = "Sobre este ejercicio";
-      text = "Este bloque recibe sus variables desde un script.";
-      link = "https://example.com";
-      label = "Leer la especificacion";
-    </script>
-  </aside-component>
+<section>
+  <h2>Lo que trae este scaffold</h2>
 
-  <figure type="component">
-    <p>
-      Este texto entra por el marcador content.
-    </p>
-  </figure>
-</main>
+  <ul>
+    <li>
+      <code>templates/layout.html</code> envuelve la página. El marcador
+      <code>&lt;content/&gt;</code> dice dónde entra lo que la página aporta.
+    </li>
+
+    <li>
+      <code>templates/partials/head.html</code> es un componente que recibe sus
+      variables por atributos. Los atributos que no sean <code>type</code> se
+      consumen y no llegan al HTML.
+    </li>
+
+    <li>
+      <code>templates/partials/header.html</code> recibe las suyas desde un
+      <code>&lt;script type="data"&gt;</code> en la invocación. Solo afectan a
+      ese componente.
+    </li>
+
+    <li>
+      <code>assets/css/style.css</code> se copia a
+      <code>public/css/style.css</code> sin procesarlo, con sus carpetas
+      intactas.
+    </li>
+  </ul>
+</section>

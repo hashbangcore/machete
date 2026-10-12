@@ -1,5 +1,29 @@
+# Las variables globales. Machete las inyecta en el sitio: las ven la página,
+# el layout y todos los componentes. Cámbialas y cambia todo el sitio.
 [data]
-title = "machete"
+title = "Machete"
+description = "Un generador de sitios estáticos hecho de componentes, layouts y variables."
 
+# Los tres enlaces del pie. De momento apuntan todos al mismo sitio: cámbialos
+# cuando existan las páginas de verdad.
+repo = "https://github.com/hashbangcore/machete"
+docs = "https://github.com/hashbangcore/machete"
+web = "https://github.com/hashbangcore/machete"
+
+# Dónde vive cada cosa. Estos son los valores por defecto, así que la tabla
+# entera puede borrarse sin que el sitio cambie. Está aquí para que se sepa
+# qué se puede cambiar.
 [build]
 public = "public"
+templates = "templates"
+assets = "assets"
+
+# La dirección donde se publica el sitio. Una cadena vacía significa que no
+# se declara. Sin ella no se escribe sitemap, porque el protocolo exige
+# direcciones absolutas y Machete no puede saber dónde se publica el sitio.
+url = ""
+
+# Con esto en true se escribe public/sitemap.xml, listando las páginas por la
+# dirección por la que se sirven. Ponerlo en false lo apaga; las páginas se
+# siguen escribiendo igual.
+sitemap = true

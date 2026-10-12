@@ -1,0 +1,133 @@
+/* Machete: un fondo casi negro con un poco de verde dentro, un único verde
+ * para lo que enlaza o destaca, y nada más.
+ */
+
+:root {
+  /* El suelo no es negro puro: el negro no lleva verde dentro. */
+  --suelo: #0d1311;
+  --borde: #243129;
+
+  /* Un solo verde, usado con poca frecuencia. */
+  --verde: #86cc9f;
+
+  /* La tinta, cálida en vez de blanca. */
+  --tinta: #eae9e4;
+  --apagado: #93a29a;
+
+  --ancho: 44rem;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono",
+    monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--suelo);
+  color: var(--tinta);
+  font-family: var(--sans);
+  font-size: 1rem;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+
+main {
+  max-width: var(--ancho);
+  margin: 0 auto;
+  padding: 5rem 1.5rem 4rem;
+}
+
+:focus-visible {
+  outline: 2px solid var(--verde);
+  outline-offset: 3px;
+}
+
+/* ---------- El encabezado ---------- */
+
+.marca {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--verde);
+}
+
+h1 {
+  margin: 0.75rem 0 0;
+  font-size: clamp(2rem, 6vw, 2.9rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+}
+
+.lema {
+  margin: 1rem 0 0;
+  color: var(--apagado);
+}
+
+/* ---------- El cuerpo ---------- */
+
+h2 {
+  margin: 4rem 0 1.5rem;
+  font-size: 0.8rem;
+  font-family: var(--mono);
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--apagado);
+}
+
+ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+li {
+  padding: 0.9rem 0;
+  border-top: 1px solid var(--borde);
+  color: var(--apagado);
+}
+
+li:last-child {
+  border-bottom: 1px solid var(--borde);
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.85em;
+  color: var(--tinta);
+}
+
+/* ---------- El pie ---------- */
+
+.pie {
+  max-width: var(--ancho);
+  margin: 0 auto;
+  padding: 2rem 1.5rem 3rem;
+  border-top: 1px solid var(--borde);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+}
+
+.pie a {
+  color: var(--apagado);
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
+.pie a:hover {
+  color: var(--verde);
+}
