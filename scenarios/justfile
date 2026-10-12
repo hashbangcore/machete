@@ -1,0 +1,111 @@
+# Escenarios de la línea de comandos.
+#
+#   just                 lista lo disponible
+#   just test-03         ejecuta un escenario
+#   just todos           ejecuta los 25 y resume
+#   just construir        compila el binario que se prueba
+
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+escenario := justfile_directory() / "escenario.sh"
+
+# Compila el binario que se prueba.
+construir:
+    @cd "{{ justfile_directory() / '..' }}" && cargo build --quiet
+    @echo "binario listo"
+
+# Ejecuta un escenario. El número va suelto: `just 03`.
+escenario numero:
+    @bash "{{ escenario }}" "{{ numero }}"
+
+# Ejecuta todos y resume cuántos fallaron.
+todos: construir
+    @fallos=0; \
+    for n in $(seq -w 1 25); do \
+        bash "{{ escenario }}" "$n" || fallos=$((fallos + 1)); \
+    done; \
+    echo; \
+    if [ "$fallos" -eq 0 ]; then \
+        echo "Los 25 escenarios se comportaron como se esperaba."; \
+    else \
+        echo "$fallos escenario(s) con diferencias."; \
+    fi
+
+test-01: construir
+    @bash "{{ escenario }}" 01
+
+test-02: construir
+    @bash "{{ escenario }}" 02
+
+test-03: construir
+    @bash "{{ escenario }}" 03
+
+test-04: construir
+    @bash "{{ escenario }}" 04
+
+test-05: construir
+    @bash "{{ escenario }}" 05
+
+test-06: construir
+    @bash "{{ escenario }}" 06
+
+test-07: construir
+    @bash "{{ escenario }}" 07
+
+test-08: construir
+    @bash "{{ escenario }}" 08
+
+test-09: construir
+    @bash "{{ escenario }}" 09
+
+test-10: construir
+    @bash "{{ escenario }}" 10
+
+test-11: construir
+    @bash "{{ escenario }}" 11
+
+test-12: construir
+    @bash "{{ escenario }}" 12
+
+test-13: construir
+    @bash "{{ escenario }}" 13
+
+test-14: construir
+    @bash "{{ escenario }}" 14
+
+test-15: construir
+    @bash "{{ escenario }}" 15
+
+test-16: construir
+    @bash "{{ escenario }}" 16
+
+test-17: construir
+    @bash "{{ escenario }}" 17
+
+test-18: construir
+    @bash "{{ escenario }}" 18
+
+test-19: construir
+    @bash "{{ escenario }}" 19
+
+test-20: construir
+    @bash "{{ escenario }}" 20
+
+test-21: construir
+    @bash "{{ escenario }}" 21
+
+test-22: construir
+    @bash "{{ escenario }}" 22
+
+test-23: construir
+    @bash "{{ escenario }}" 23
+
+test-24: construir
+    @bash "{{ escenario }}" 24
+
+test-25: construir
+    @bash "{{ escenario }}" 25
+
+# Muestra solo los escenarios que hoy no dicen nada cuando toca.
+silencios: construir
+    @for n in 03 04 06 18 20; do bash "{{ escenario }}" "$n"; done
