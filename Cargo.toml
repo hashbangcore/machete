@@ -7,3 +7,5 @@ edition = "2024"
 clap = { version = "4.6.7", features = ["derive", "env"] }
 clap_complete = "4.6.11"
 toml = "1.1.8"
+tracing = { version = "0.1.44", features = ["attributes"] }
+tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
