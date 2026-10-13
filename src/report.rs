@@ -16,7 +16,7 @@
 
 use clap::ValueEnum;
 use std::io::IsTerminal;
-use std::path::Path;
+use std::path::{Path, absolute};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -110,12 +110,6 @@ fn with_run<T>(leer: impl FnOnce(&Run) -> T) -> Option<T> {
     Some(leer(&run))
 }
 
-/// How long the run has been going, for the line that ends it.
-fn elapsed() -> String {
-    let milisegundos = with_run(|run| run.started.elapsed().as_millis()).unwrap_or(0);
-    format!("{milisegundos}ms")
-}
-
 /// Paints a line, or leaves it alone when nobody is watching.
 fn paint(color: bool, code: &str, text: &str) -> String {
     if color {
@@ -158,20 +152,20 @@ pub fn success(output: Option<&Path>, pages: usize, assets: usize) {
     match format {
         Format::Plain => {
             let counts = match (pages, assets) {
-                (0, 0) => "nada que escribir".to_string(),
-                (pages, 0) => plural(pages, "página", "páginas"),
-                (0, assets) => plural(assets, "recurso", "recursos"),
+                (0, 0) => "nothing to write".to_string(),
+                (pages, 0) => plural(pages, "page", "pages"),
+                (0, assets) => plural(assets, "asset", "assets"),
                 (pages, assets) => format!(
-                    "{} y {}",
-                    plural(pages, "página", "páginas"),
-                    plural(assets, "recurso", "recursos")
+                    "{} and {}",
+                    plural(pages, "page", "pages"),
+                    plural(assets, "asset", "assets")
                 ),
             };
 
             let donde = if destino.is_empty() {
                 String::new()
             } else {
-                format!(" en {destino}")
+                format!(" in {destino}")
             };
 
             let _ = (command, input, timestamp);
@@ -201,29 +195,31 @@ pub fn success(output: Option<&Path>, pages: usize, assets: usize) {
 
 /// Reports that a scaffold was written, or that it was not.
 ///
-/// `init` counts files rather than pages, so it says so instead of borrowing
-/// the wording of a build.
+/// Says where the site landed, in an absolute path, because a relative one
+/// only means something to whoever typed it and a caller automating this has no
+/// other way of learning it. The count of files is left out: it says nothing a
+/// reader can act on, and so does a time that is always nearly nothing next to
+/// writing them.
 pub fn scaffolded(path: &Path, files: usize) {
     if is_quiet() {
         return;
     }
 
+    let site = absolute(path).unwrap_or_else(|_| path.to_path_buf());
+
     if files == 0 {
-        warning(&format!("{} ya existe: no se escribe nada", path.display()));
+        warning(&format!(
+            "{} already exists, nothing written",
+            site.display()
+        ));
         return;
     }
 
-    let duration = elapsed();
-
     match format() {
         Format::Plain => {
-            let texto = format!(
-                "success: {} en {} ({duration})",
-                plural(files, "fichero", "ficheros"),
-                path.display()
-            );
+            let text = format!("success: site created at {}", site.display());
 
-            tracing::info!("{}", paint(use_color(), VERDE, &texto));
+            tracing::info!("{}", paint(use_color(), VERDE, &text));
         }
 
         Format::Json => {
@@ -235,8 +231,7 @@ pub fn scaffolded(path: &Path, files: usize) {
                 status = "success",
                 command = command,
                 input = %input,
-                output = %path.display(),
-                files = files,
+                output = %site.display(),
                 timestamp = %timestamp,
             );
         }
@@ -400,8 +395,8 @@ mod tests {
 
     #[test]
     fn el_plural_acepta_uno_y_varios() {
-        assert_eq!(plural(1, "página", "páginas"), "1 página");
-        assert_eq!(plural(4, "página", "páginas"), "4 páginas");
-        assert_eq!(plural(0, "recurso", "recursos"), "0 recursos");
+        assert_eq!(plural(1, "page", "pages"), "1 page");
+        assert_eq!(plural(4, "page", "pages"), "4 pages");
+        assert_eq!(plural(0, "asset", "assets"), "0 assets");
     }
 }

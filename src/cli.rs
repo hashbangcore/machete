@@ -166,7 +166,7 @@ pub fn run(cli: Cli) -> Result<(), BuildError> {
             let output = config.output_dir(target.output());
             let built = build(&config, &output)?;
             if !built.sitemap {
-                report::warning("sin sitemap: falta url en [build], o sitemap está apagado");
+                report::warning("no sitemap written: [build] has no url, or sitemap is turned off");
             }
             report::success(Some(&output), built.pages, built.assets);
             Ok(())
