@@ -45,6 +45,16 @@ pub fn build(config: &Config, output: &Path) -> Result<usize, BuildError> {
         });
     }
 
+    // The output is emptied below, so it must not be anywhere the site lives.
+    // `public = "."` and `machete build .:.` both arrive here, and either one
+    // would delete the templates while reading them.
+    if output_is_inside_site(config, output) {
+        return Err(BuildError::OutputInsideSite {
+            output: output.to_path_buf(),
+            templates: config.templates.clone(),
+        });
+    }
+
     // Emptied once the site is known to be buildable. Checking first means a
     // site with no pages fails without taking its output down with it.
     if output.exists() {
@@ -289,6 +299,21 @@ fn read_page(path: &Path) -> Result<Node, BuildError> {
         path: path.to_path_buf(),
         source,
     })
+}
+
+/// Reports whether `output` would swallow the site it is building.
+///
+/// The output is emptied before writing, so if it is the site directory or an
+/// ancestor of it, the templates would be gone before the first page is read.
+/// Both `public = "."` and `machete build .:.` come to this.
+///
+/// Compared lexically, on purpose. Canonicalising would resolve symlinks and
+/// need both paths to exist, and the question here is what the paths *say*, not
+/// what they point at.
+fn output_is_inside_site(config: &Config, output: &Path) -> bool {
+    let site = &config.root;
+
+    output == site || site.starts_with(output) || output.starts_with(&config.templates)
 }
 
 /// The path a page takes inside the output directory, relative to it.

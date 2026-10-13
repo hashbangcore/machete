@@ -1135,3 +1135,62 @@ fn a_flag_beats_the_configuration() {
     build(&config, &out).expect("the build succeeds");
     assert!(out.join("index.html").exists());
 }
+
+#[test]
+fn an_output_of_dot_is_refused_before_anything_is_deleted() {
+    let workspace = Workspace::new("build-output-dot");
+    minimal_site(&workspace);
+    workspace.write(
+        "machete.toml",
+        "[data]\ntitle = \"t\"\n\n[build]\npublic = \".\"\n",
+    );
+
+    let out = workspace.join(".");
+    let error = match build(&workspace.site(), &out) {
+        Err(error) => error,
+        Ok(pages) => panic!("the build ran and wrote {pages} pages"),
+    };
+
+    assert!(matches!(error, BuildError::OutputInsideSite { .. }));
+    // The whole point is that it stops before the templates are removed.
+    assert!(
+        workspace.join("templates/index.html").exists(),
+        "the templates were touched"
+    );
+}
+
+#[test]
+fn an_output_over_the_templates_is_refused() {
+    let workspace = Workspace::new("build-output-templates");
+    minimal_site(&workspace);
+
+    let out = workspace.join("templates");
+    let error = match build(&workspace.site(), &out) {
+        Err(error) => error,
+        Ok(pages) => panic!("the build ran and wrote {pages} pages"),
+    };
+
+    assert!(matches!(error, BuildError::OutputInsideSite { .. }));
+    assert!(workspace.join("templates/layout.html").exists());
+}
+
+#[test]
+fn a_sibling_of_the_site_is_still_a_fine_output() {
+    let workspace = Workspace::new("build-output-sibling");
+    minimal_site(&workspace);
+
+    let out = workspace.join("dist");
+    build(&workspace.site(), &out).expect("the build succeeds");
+
+    assert!(out.join("index.html").exists());
+}
+
+#[test]
+fn init_reports_that_it_ran() {
+    let workspace = Workspace::new("init-reports");
+    let site = workspace.join("sitio");
+
+    write(&site).expect("init runs");
+
+    assert!(site.join("machete.toml").exists());
+}

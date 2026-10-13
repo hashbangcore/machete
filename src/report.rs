@@ -124,6 +124,38 @@ pub fn success(output: Option<&std::path::Path>, pages: usize) {
     }
 }
 
+/// Reports something the reader should know that is not a failure.
+///
+/// Warnings do not stop the run and do not change the exit code. They are the
+/// middle voice between the plain success and the error, and they are the only
+/// thing here that `warn!` is used for.
+pub fn warning(reason: &str) {
+    if is_quiet() {
+        return;
+    }
+
+    let Some((command, input, timestamp)) = with_run(|run| {
+        (
+            run.command.to_string(),
+            run.input.clone(),
+            run.timestamp.clone(),
+        )
+    }) else {
+        return;
+    };
+
+    match format() {
+        Format::Plain => tracing::warn!("warning: {reason}"),
+        Format::Json | Format::Jsonl => tracing::warn!(
+            status = "warning",
+            command = command,
+            input = %input,
+            reason = reason,
+            timestamp = %timestamp,
+        ),
+    }
+}
+
 /// Reports that a command could not finish.
 ///
 /// Quiet does not reach here. A silent failure is worse than any amount of

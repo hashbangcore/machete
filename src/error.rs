@@ -153,6 +153,8 @@ pub enum BuildError {
     NestedData { name: String },
     /// A `[build]` key was given a value of the wrong kind.
     InvalidBuildValue { key: &'static str, found: String },
+    /// The output directory would hold the site's own sources.
+    OutputInsideSite { output: PathBuf, templates: PathBuf },
     /// A filesystem operation failed.
     Io(IoError),
     /// `machete.toml` could not be parsed.
@@ -341,6 +343,14 @@ impl fmt::Display for BuildError {
             Self::InvalidBuildValue { key, found } => {
                 write!(f, "'{key}' in [build] expects true or false, found {found}")
             }
+            Self::OutputInsideSite { output, templates } => write!(
+                f,
+                "{} would hold {} inside it. The output cannot be the site \
+                 directory or anything above it, or the build would delete the \
+                 templates it is reading from",
+                output.display(),
+                templates.display()
+            ),
             Self::InvalidTarget { found, reason } => write!(
                 f,
                 "cannot read '{found}': {reason}. Expected input:output, \

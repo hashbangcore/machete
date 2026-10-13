@@ -1,5 +1,6 @@
 use clap::Parser;
 use machete::cli::{Cli, run};
+use machete::error::BuildError;
 use machete::report::{self, Format};
 use std::process::ExitCode;
 
@@ -14,7 +15,15 @@ fn main() -> ExitCode {
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            report::failure(&error.to_string());
+            // An output that would hold the site is not a crash: the build
+            // simply did not run. It is said as a warning, and the exit code is
+            // still a failure, because nothing was built and a script must be
+            // able to tell.
+            match &error {
+                BuildError::OutputInsideSite { .. } => report::warning(&error.to_string()),
+                _ => report::failure(&error.to_string()),
+            }
+
             ExitCode::FAILURE
         }
     }
