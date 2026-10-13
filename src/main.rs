@@ -48,12 +48,16 @@ fn main() -> ExitCode {
 fn init_tracing() {
     match report::format() {
         Format::Plain => {
+            // The escapes are put in by hand, so sanitising would strip them.
+            // They only get there when there is a terminal to show them on.
             tracing_subscriber::fmt()
                 .without_time()
                 .with_level(false)
                 .with_target(false)
                 .with_file(false)
                 .with_line_number(false)
+                .with_ansi(false)
+                .with_ansi_sanitization(false)
                 .with_writer(std::io::stderr)
                 .init();
         }

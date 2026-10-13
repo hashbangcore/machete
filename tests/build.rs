@@ -233,7 +233,7 @@ fn a_site_with_no_pages_keeps_its_output() {
 
     let error = match build(&workspace.site(), &out) {
         Err(error) => error,
-        Ok(pages) => panic!("expected a no-pages error, built {pages}"),
+        Ok(built) => panic!("expected a no-pages error, built {}", built.pages),
     };
     assert!(matches!(error, BuildError::NoPages { .. }));
 
@@ -1148,7 +1148,7 @@ fn an_output_of_dot_is_refused_before_anything_is_deleted() {
     let out = workspace.join(".");
     let error = match build(&workspace.site(), &out) {
         Err(error) => error,
-        Ok(pages) => panic!("the build ran and wrote {pages} pages"),
+        Ok(built) => panic!("the build ran and wrote {} pages", built.pages),
     };
 
     assert!(matches!(error, BuildError::OutputInsideSite { .. }));
@@ -1167,7 +1167,7 @@ fn an_output_over_the_templates_is_refused() {
     let out = workspace.join("templates");
     let error = match build(&workspace.site(), &out) {
         Err(error) => error,
-        Ok(pages) => panic!("the build ran and wrote {pages} pages"),
+        Ok(built) => panic!("the build ran and wrote {} pages", built.pages),
     };
 
     assert!(matches!(error, BuildError::OutputInsideSite { .. }));

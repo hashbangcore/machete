@@ -25,8 +25,22 @@ const INDEX: &str = "index.html";
 /// The file a sitemap is written to.
 const SITEMAP: &str = "sitemap.xml";
 
+/// What a build put in the output directory.
+///
+/// Returned so the report can say what was produced, the way cargo ends with a
+/// count rather than a word.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Built {
+    /// Pages written.
+    pub pages: usize,
+    /// Static files copied.
+    pub assets: usize,
+    /// Whether a sitemap reached the output.
+    pub sitemap: bool,
+}
+
 /// Reads every page from `config` and writes the finished HTML into `output`,
-/// returning how many pages were written.
+/// returning what it produced.
 ///
 /// The output directory is emptied first, so what ends up in it is exactly what
 /// this build produced and nothing else. A page deleted from the templates is
@@ -35,7 +49,7 @@ const SITEMAP: &str = "sitemap.xml";
 /// Static files are copied from `config.assets` into `output` untouched, keeping
 /// whatever directories they sit in, so `assets/css/main.css` lands at
 /// `output/css/main.css`.
-pub fn build(config: &Config, output: &Path) -> Result<usize, BuildError> {
+pub fn build(config: &Config, output: &Path) -> Result<Built, BuildError> {
     let defs = load_definitions(config)?;
     let pages = collect_pages(&config.templates)?;
 
@@ -79,10 +93,14 @@ pub fn build(config: &Config, output: &Path) -> Result<usize, BuildError> {
         }
     }
 
-    copy_assets(config, output)?;
-    write_sitemap(config, output, &written)?;
+    let assets = copy_assets(config, output)?;
+    let sitemap = write_sitemap(config, output, &written)?;
 
-    Ok(written.len())
+    Ok(Built {
+        pages: written.len(),
+        assets,
+        sitemap,
+    })
 }
 
 /// Writes `sitemap.xml` when the site says where it is published.
@@ -91,31 +109,35 @@ pub fn build(config: &Config, output: &Path) -> Result<usize, BuildError> {
 /// write, and a sitemap of relative paths would be worse than no sitemap: it
 /// would be rejected. This runs after the assets so that it wins over an
 /// `assets/sitemap.xml` the site may carry of its own.
-fn write_sitemap(config: &Config, output: &Path, pages: &[PathBuf]) -> Result<(), BuildError> {
+fn write_sitemap(config: &Config, output: &Path, pages: &[PathBuf]) -> Result<bool, BuildError> {
     // Checked before the URL: turning the sitemap off is an explicit choice,
     // so there is nothing to look for once it has been made.
     if !config.sitemap {
-        return Ok(());
+        return Ok(false);
     }
 
     let Some(base) = config.url.as_deref() else {
-        return Ok(());
+        return Ok(false);
     };
 
     let target = output.join(SITEMAP);
 
     fs::write(&target, sitemap::render(base, pages))
-        .map_err(|source| BuildError::Io(IoError::new("write", &target, source)))
+        .map_err(|source| BuildError::Io(IoError::new("write", &target, source)))?;
+
+    Ok(true)
 }
 
 /// Copies every file under `config.assets` into `output`, unchanged.
 ///
 /// The layout of the source directory is kept, so a file inside `css/` stays
 /// inside `css/`. A site with no assets directory simply has nothing to copy.
-fn copy_assets(config: &Config, output: &Path) -> Result<(), BuildError> {
+fn copy_assets(config: &Config, output: &Path) -> Result<usize, BuildError> {
     if !config.assets.is_dir() {
-        return Ok(());
+        return Ok(0);
     }
+
+    let mut copied = 0;
 
     let mut pending = vec![config.assets.clone()];
 
@@ -146,10 +168,12 @@ fn copy_assets(config: &Config, output: &Path) -> Result<(), BuildError> {
 
             fs::copy(&path, &target)
                 .map_err(|source| BuildError::Io(IoError::new("copy", &path, source)))?;
+
+            copied += 1;
         }
     }
 
-    Ok(())
+    Ok(copied)
 }
 
 /// One finished page: the HTML to write, and whether a search engine should be
@@ -804,13 +828,18 @@ fn scalar(value: toml::Value) -> String {
 /// The files come from the `docs/scaffold/` directory, embedded at compile
 /// time, so `init` produces the same site wherever it runs.
 ///
-/// A directory that already exists is left completely alone. An existing site
-/// belongs to whoever is working on it, and a scaffold is a starting point
-/// rather than something worth overwriting.
-pub fn write_scaffold(root: &Path) -> Result<(), BuildError> {
+/// A directory that already exists is left completely alone, and nothing is
+/// written. An existing site belongs to whoever is working on it, and a
+/// scaffold is a starting point rather than something worth overwriting.
+///
+/// Returns how many files were written, which is zero when the directory was
+/// already there.
+pub fn write_scaffold(root: &Path) -> Result<usize, BuildError> {
     if root.exists() {
-        return Ok(());
+        return Ok(0);
     }
+
+    let mut escritos = 0;
 
     for entry in scaffold_files() {
         let path = root.join(entry.path);
@@ -823,9 +852,11 @@ pub fn write_scaffold(root: &Path) -> Result<(), BuildError> {
 
         fs::write(&path, entry.contents)
             .map_err(|source| BuildError::Io(IoError::new("write", &path, source)))?;
+
+        escritos += 1;
     }
 
-    Ok(())
+    Ok(escritos)
 }
 
 /// A file belonging to the scaffold, with its path relative to the site root.

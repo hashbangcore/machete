@@ -1,23 +1,29 @@
 //! What a run says about itself.
 //!
 //! Everything that identifies the run is worked out once, when the program
-//! starts, and kept in a single place. The timestamp is the clearest case: read
-//! the clock on every event and two events in the same second could disagree
-//! about when they happened, or worse, about the date if one crossed midnight.
-//! Here it is resolved once and everybody reuses it.
+//! starts, and kept in a single place. The clock is the clearest case: read it
+//! on every event and two events in the same second could disagree about when
+//! they happened, or worse, about the date if one crossed midnight.
 //!
-//! Adding a field to the report means adding it to [`Run`] and reading it in the
-//! event that needs it. Nothing else has to change, and the value is still
-//! resolved in one place.
+//! The shape of a report follows what other tools do. Warnings and errors are
+//! prefixed and coloured, as rustc does, and a finished run ends with one line
+//! saying what it produced, as cargo does with its count and its time. The
+//! colours are only used when standard error is a terminal; a pipe gets the
+//! words alone.
+//!
+//! JSON carries the same facts in fields rather than in a sentence, so both
+//! forms say the same thing in the way their reader expects.
 
 use clap::ValueEnum;
+use std::io::IsTerminal;
+use std::path::Path;
 use std::sync::{Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 /// How a run writes down what happened.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum Format {
-    /// Words for a person: `success`, or `error: <motivo>`.
+    /// Words for a person.
     Plain,
     /// A JSON object per record.
     Json,
@@ -29,8 +35,12 @@ pub enum Format {
 struct Run {
     format: Format,
     quiet: bool,
+    /// Only turned on when someone is there to see it.
+    color: bool,
     /// Resolved here and nowhere else, so every event reads the same one.
     timestamp: String,
+    /// When the program started, to time the run against.
+    started: Instant,
     command: &'static str,
     input: String,
 }
@@ -41,14 +51,14 @@ static RUN: OnceLock<Mutex<Run>> = OnceLock::new();
 /// Records how this run should report, and when it happened.
 ///
 /// Called once, before anything else runs. The clock is read here rather than
-/// at each event.
+/// at each event, and so is the decision of whether anyone is watching.
 pub fn start(format: Format, quiet: bool) {
-    let timestamp = iso8601(SystemTime::now());
-
     let _ = RUN.set(Mutex::new(Run {
         format,
         quiet,
-        timestamp,
+        color: std::io::stderr().is_terminal(),
+        timestamp: iso8601(SystemTime::now()),
+        started: Instant::now(),
         command: "",
         input: String::new(),
     }));
@@ -58,7 +68,7 @@ pub fn start(format: Format, quiet: bool) {
 ///
 /// A second resolution, because the arguments are only known once they are
 /// parsed. It happens once too, so the value does not change halfway through.
-pub fn identify(command: &'static str, input: &std::path::Path) {
+pub fn identify(command: &'static str, input: &Path) {
     let Some(run) = RUN.get() else {
         return;
     };
@@ -77,10 +87,18 @@ pub fn format() -> Format {
 
 /// Whether this run says nothing at all.
 ///
-/// `--quiet` wins over `--format`. Asking for both means the quiet one rules,
-/// so nothing is written whichever format was named.
+/// `--quiet` wins over `--format`, so nothing is written whichever format was
+/// named.
 pub fn is_quiet() -> bool {
     with_run(|run| run.quiet).unwrap_or(false)
+}
+
+/// Whether the run may use colour, because there is a terminal to show it on.
+///
+/// Only plain text is coloured. JSON carries its own structure, and escape
+/// codes inside it would break anything trying to read it.
+pub fn use_color() -> bool {
+    with_run(|run| run.color && run.format == Format::Plain).unwrap_or(false)
 }
 
 /// Reads the run under its lock, or `None` when nobody has started one.
@@ -94,34 +112,142 @@ fn with_run<T>(leer: impl FnOnce(&Run) -> T) -> Option<T> {
     Some(leer(&run))
 }
 
+/// How long the run has been going, for the line that ends it.
+fn elapsed() -> String {
+    let milisegundos = with_run(|run| run.started.elapsed().as_millis()).unwrap_or(0);
+    format!("{milisegundos}ms")
+}
+
+/// Paints a line, or leaves it alone when nobody is watching.
+fn paint(color: bool, code: &str, text: &str) -> String {
+    if color {
+        format!("{code}{text}\x1b[0m")
+    } else {
+        text.to_string()
+    }
+}
+
+const VERDE: &str = "\x1b[32m";
+const AMARILLO: &str = "\x1b[33m";
+const ROJO: &str = "\x1b[31m";
+
 /// Reports that a command finished the work it was asked to do.
-pub fn success(output: Option<&std::path::Path>, pages: usize) {
+///
+/// Says what it produced rather than the word success on its own: a person
+/// wants to know there were four pages and not that there were pages, and a
+/// script wants the four.
+pub fn success(output: Option<&Path>, pages: usize, assets: usize) {
     if is_quiet() {
         return;
     }
 
-    let Some((format, command, input, timestamp)) = with_run(|run| {
+    let Some((format, command, input, timestamp, duration)) = with_run(|run| {
         (
             run.format,
             run.command,
             run.input.clone(),
             run.timestamp.clone(),
+            run.started.elapsed().as_millis(),
         )
     }) else {
         return;
     };
 
+    let destino = output
+        .map(|path| path.display().to_string())
+        .unwrap_or_default();
+
     match format {
-        Format::Plain => tracing::info!("success"),
+        Format::Plain => {
+            let counts = match (pages, assets) {
+                (0, 0) => "nada que escribir".to_string(),
+                (pages, 0) => plural(pages, "página", "páginas"),
+                (0, assets) => plural(assets, "recurso", "recursos"),
+                (pages, assets) => format!(
+                    "{} y {}",
+                    plural(pages, "página", "páginas"),
+                    plural(assets, "recurso", "recursos")
+                ),
+            };
+
+            let donde = if destino.is_empty() {
+                String::new()
+            } else {
+                format!(" en {destino}")
+            };
+
+            let _ = (command, input, timestamp);
+
+            tracing::info!(
+                "{}",
+                paint(
+                    use_color(),
+                    VERDE,
+                    &format!("success: {counts}{donde} ({duration}ms)")
+                )
+            );
+        }
+
         Format::Json | Format::Jsonl => tracing::info!(
             status = "success",
             command = command,
             input = %input,
-            output = output.map(|path| path.display().to_string()).unwrap_or_default(),
+            output = %destino,
             pages = pages,
+            assets = assets,
+            duration_ms = duration,
             timestamp = %timestamp,
         ),
     }
+}
+
+/// Reports that a scaffold was written, or that it was not.
+///
+/// `init` counts files rather than pages, so it says so instead of borrowing
+/// the wording of a build.
+pub fn scaffolded(path: &Path, files: usize) {
+    if is_quiet() {
+        return;
+    }
+
+    if files == 0 {
+        warning(&format!("{} ya existe: no se escribe nada", path.display()));
+        return;
+    }
+
+    let duration = elapsed();
+
+    match format() {
+        Format::Plain => {
+            let texto = format!(
+                "success: {} en {} ({duration})",
+                plural(files, "fichero", "ficheros"),
+                path.display()
+            );
+
+            tracing::info!("{}", paint(use_color(), VERDE, &texto));
+        }
+
+        Format::Json | Format::Jsonl => {
+            let Some((command, input, timestamp)) = identity() else {
+                return;
+            };
+
+            tracing::info!(
+                status = "success",
+                command = command,
+                input = %input,
+                output = %path.display(),
+                files = files,
+                timestamp = %timestamp,
+            );
+        }
+    }
+}
+
+/// The command, the input and the timestamp, all resolved once.
+fn identity() -> Option<(&'static str, String, String)> {
+    with_run(|run| (run.command, run.input.clone(), run.timestamp.clone()))
 }
 
 /// Reports something the reader should know that is not a failure.
@@ -134,18 +260,16 @@ pub fn warning(reason: &str) {
         return;
     }
 
-    let Some((command, input, timestamp)) = with_run(|run| {
-        (
-            run.command.to_string(),
-            run.input.clone(),
-            run.timestamp.clone(),
-        )
-    }) else {
+    let Some((command, input, timestamp)) = identity() else {
         return;
     };
 
     match format() {
-        Format::Plain => tracing::warn!("warning: {reason}"),
+        Format::Plain => tracing::warn!(
+            "{}",
+            paint(use_color(), AMARILLO, &format!("warning: {reason}"))
+        ),
+
         Format::Json | Format::Jsonl => tracing::warn!(
             status = "warning",
             command = command,
@@ -163,18 +287,15 @@ pub fn warning(reason: &str) {
 /// leaves the reader with nothing to act on. `--quiet` silences the report of
 /// work done, never the report of work that failed.
 pub fn failure(reason: &str) {
-    let Some((command, input, timestamp)) = with_run(|run| {
-        (
-            run.command.to_string(),
-            run.input.clone(),
-            run.timestamp.clone(),
-        )
-    }) else {
+    let Some((command, input, timestamp)) = identity() else {
         return;
     };
 
     match format() {
-        Format::Plain => tracing::error!("error: {reason}"),
+        Format::Plain => {
+            tracing::error!("{}", paint(use_color(), ROJO, &format!("error: {reason}")))
+        }
+
         Format::Json | Format::Jsonl => tracing::error!(
             status = "error",
             command = command,
@@ -182,6 +303,15 @@ pub fn failure(reason: &str) {
             reason = reason,
             timestamp = %timestamp,
         ),
+    }
+}
+
+/// One and many, without a grammar of its own.
+fn plural(cuenta: usize, uno: &str, muchos: &str) -> String {
+    if cuenta == 1 {
+        format!("{cuenta} {uno}")
+    } else {
+        format!("{cuenta} {muchos}")
     }
 }
 
@@ -248,15 +378,11 @@ mod tests {
 
     #[test]
     fn el_comienzo_del_siglo_veinte() {
-        // The turn of the century: a leap day followed, so the count is the
-        // interesting one.
         assert_eq!(iso8601(momento(946_684_800)), "2000-01-01T00:00:00Z");
     }
 
     #[test]
     fn despues_de_un_bisiesto() {
-        // 2000 was a leap year, so the calendar has to know it when it counts
-        // the last day of the year.
         assert_eq!(iso8601(momento(978_220_800)), "2000-12-31T00:00:00Z");
         assert_eq!(iso8601(momento(1_709_164_800)), "2024-02-29T00:00:00Z");
     }
@@ -272,5 +398,12 @@ mod tests {
             iso8601(momento(1_791_849_600 + 3_661)),
             "2026-10-13T01:01:01Z"
         );
+    }
+
+    #[test]
+    fn el_plural_acepta_uno_y_varios() {
+        assert_eq!(plural(1, "página", "páginas"), "1 página");
+        assert_eq!(plural(4, "página", "páginas"), "4 páginas");
+        assert_eq!(plural(0, "recurso", "recursos"), "0 recursos");
     }
 }

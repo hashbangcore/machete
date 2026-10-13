@@ -164,15 +164,18 @@ pub fn run(cli: Cli) -> Result<(), BuildError> {
             report::identify("build", &target.input());
             let config = Config::load_with(&target.input(), &args.overrides())?;
             let output = config.output_dir(target.output());
-            let pages = build(&config, &output)?;
-            report::success(Some(&output), pages);
+            let built = build(&config, &output)?;
+            if !built.sitemap {
+                report::warning("sin sitemap: falta url en [build], o sitemap está apagado");
+            }
+            report::success(Some(&output), built.pages, built.assets);
             Ok(())
         }
         Command::Init(args) => {
             let root = args.target();
             report::identify("init", &root);
-            write_scaffold(&root)?;
-            report::success(Some(&root), 0);
+            let files = write_scaffold(&root)?;
+            report::scaffolded(&root, files);
             Ok(())
         }
         Command::Completions(args) => completions(args),
