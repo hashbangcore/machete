@@ -6,6 +6,7 @@
 
 use crate::build::{Config, Overrides, build, write_scaffold};
 use crate::error::BuildError;
+use crate::report::{self, Format};
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use std::path::{Path, PathBuf};
@@ -17,7 +18,18 @@ use std::path::{Path, PathBuf};
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
+
+    /// How to write down what happened.
+    #[arg(long, value_enum, value_name = "FORMATO", global = true)]
+    pub format: Option<Format>,
+
+    /// Say nothing at all, whatever the format says.
+    #[arg(long, global = true)]
+    pub quiet: bool,
 }
+
+/// The output format a run uses when `--format` does not name one.
+pub const DEFAULT_FORMAT: Format = Format::Plain;
 
 /// The commands `machete` accepts.
 #[derive(Debug, Subcommand)]
@@ -149,10 +161,20 @@ pub fn run(cli: Cli) -> Result<(), BuildError> {
     match cli.command {
         Command::Build(args) => {
             let target = args.parse()?;
+            report::identify("build", &target.input());
             let config = Config::load_with(&target.input(), &args.overrides())?;
-            build(&config, &config.output_dir(target.output()))
+            let output = config.output_dir(target.output());
+            let pages = build(&config, &output)?;
+            report::success(Some(&output), pages);
+            Ok(())
         }
-        Command::Init(args) => write_scaffold(&args.target()),
+        Command::Init(args) => {
+            let root = args.target();
+            report::identify("init", &root);
+            write_scaffold(&root)?;
+            report::success(Some(&root), 0);
+            Ok(())
+        }
         Command::Completions(args) => completions(args),
     }
 }

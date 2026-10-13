@@ -1,16 +1,20 @@
 use clap::Parser;
 use machete::cli::{Cli, run};
+use machete::report::{self, Format};
 use std::process::ExitCode;
-use tracing_subscriber::EnvFilter;
 
 /// Runs the command selected by the process arguments.
 fn main() -> ExitCode {
+    let cli = Cli::parse();
+
+    // The clock is read here, once, and everything else reads it from there.
+    report::start(cli.format.unwrap_or(Format::Plain), cli.quiet);
     init_tracing();
 
-    match run(Cli::parse()) {
+    match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("error: {error}");
+            report::failure(&error.to_string());
             ExitCode::FAILURE
         }
     }
@@ -18,23 +22,42 @@ fn main() -> ExitCode {
 
 /// Installs the global subscriber that collects what the program reports.
 ///
-/// The subscriber is set once, before anything runs, so that every event is
-/// collected for the rest of the process. A library should never install one:
-/// whoever uses it decides.
+/// Which formatter is installed follows `--format`. Plain is written by hand so
+/// that a person sees one line and nothing else: the timestamp, the level and
+/// the target are all turned off, and a plain event carries no fields, so only
+/// the message is left. JSON keeps the fields, flattened to the top level so a
+/// reader finds `status` where it expects it rather than nested under
+/// `fields`.
 ///
-/// Two choices are already settled. Events go to standard error, because
-/// standard output carries the data a command was asked to produce, as
-/// `machete completions bash` does; anything written there would land in the
-/// middle of a completion script. And the level comes from `RUST_LOG`, falling
-/// back to `info` when it is unset or cannot be read.
+/// Everything goes to standard error. Standard output carries the data a
+/// command was asked to produce, as `machete completions` does, and a log line
+/// in the middle of a shell script would break it.
 ///
-/// The JSON formatter and the `#[instrument]` attribute are available but not
-/// used yet: there are no events to emit and no command takes a verbosity flag.
+/// The level filter from `RUST_LOG` is not wired up yet.
 fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    match report::format() {
+        Format::Plain => {
+            tracing_subscriber::fmt()
+                .without_time()
+                .with_level(false)
+                .with_target(false)
+                .with_file(false)
+                .with_line_number(false)
+                .with_writer(std::io::stderr)
+                .init();
+        }
 
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_writer(std::io::stderr)
-        .init();
+        Format::Json | Format::Jsonl => {
+            tracing_subscriber::fmt()
+                .json()
+                .flatten_event(true)
+                .with_current_span(false)
+                .with_span_list(false)
+                .without_time()
+                .with_level(false)
+                .with_target(false)
+                .with_writer(std::io::stderr)
+                .init();
+        }
+    }
 }

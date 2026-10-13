@@ -233,7 +233,7 @@ fn a_site_with_no_pages_keeps_its_output() {
 
     let error = match build(&workspace.site(), &out) {
         Err(error) => error,
-        Ok(()) => panic!("expected a no-pages error"),
+        Ok(pages) => panic!("expected a no-pages error, built {pages}"),
     };
     assert!(matches!(error, BuildError::NoPages { .. }));
 

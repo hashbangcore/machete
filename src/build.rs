@@ -25,7 +25,8 @@ const INDEX: &str = "index.html";
 /// The file a sitemap is written to.
 const SITEMAP: &str = "sitemap.xml";
 
-/// Reads every page from `config` and writes the finished HTML into `output`.
+/// Reads every page from `config` and writes the finished HTML into `output`,
+/// returning how many pages were written.
 ///
 /// The output directory is emptied first, so what ends up in it is exactly what
 /// this build produced and nothing else. A page deleted from the templates is
@@ -34,7 +35,7 @@ const SITEMAP: &str = "sitemap.xml";
 /// Static files are copied from `config.assets` into `output` untouched, keeping
 /// whatever directories they sit in, so `assets/css/main.css` lands at
 /// `output/css/main.css`.
-pub fn build(config: &Config, output: &Path) -> Result<(), BuildError> {
+pub fn build(config: &Config, output: &Path) -> Result<usize, BuildError> {
     let defs = load_definitions(config)?;
     let pages = collect_pages(&config.templates)?;
 
@@ -71,7 +72,7 @@ pub fn build(config: &Config, output: &Path) -> Result<(), BuildError> {
     copy_assets(config, output)?;
     write_sitemap(config, output, &written)?;
 
-    Ok(())
+    Ok(written.len())
 }
 
 /// Writes `sitemap.xml` when the site says where it is published.

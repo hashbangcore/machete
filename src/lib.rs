@@ -34,6 +34,7 @@ pub mod compose;
 pub mod error;
 pub mod html;
 pub mod node;
+pub mod report;
 pub mod sitemap;
 pub mod vars;
 

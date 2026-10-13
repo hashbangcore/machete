@@ -7,6 +7,7 @@
 use clap::Parser;
 use machete::cli::{BuildArgs, Cli, Command, InitArgs, Target};
 use machete::error::BuildError;
+use machete::report::Format;
 use std::path::PathBuf;
 
 fn build_args(target: Option<&str>, extra: &[&str]) -> BuildArgs {
@@ -156,4 +157,74 @@ fn completions_takes_a_shell() {
 #[test]
 fn an_unknown_command_is_rejected() {
     assert!(Cli::try_parse_from(["machete", "nope"]).is_err());
+}
+
+#[test]
+fn format_defaults_to_plain_when_it_is_not_named() {
+    let cli = Cli::try_parse_from(["machete", "build"]).expect("accepted");
+    assert_eq!(cli.format, None);
+    assert!(!cli.quiet);
+}
+
+#[test]
+fn format_is_named_with_a_long_flag_only() {
+    for (nombre, esperado) in [
+        ("plain", Format::Plain),
+        ("json", Format::Json),
+        ("jsonl", Format::Jsonl),
+    ] {
+        let cli = Cli::try_parse_from(["machete", "build", "--format", nombre]).expect("accepted");
+        assert_eq!(cli.format, Some(esperado), "for --format {nombre}");
+    }
+}
+
+#[test]
+fn format_takes_no_short_flag() {
+    assert!(
+        Cli::try_parse_from(["machete", "build", "-f", "json"]).is_err(),
+        "-f was accepted"
+    );
+}
+
+#[test]
+fn quiet_takes_no_short_flag() {
+    assert!(
+        Cli::try_parse_from(["machete", "build", "-q"]).is_err(),
+        "-q was accepted"
+    );
+}
+
+#[test]
+fn quiet_is_accepted_and_can_be_paired_with_a_format() {
+    let cli =
+        Cli::try_parse_from(["machete", "build", "--quiet", "--format", "json"]).expect("accepted");
+    assert!(cli.quiet);
+    assert_eq!(cli.format, Some(Format::Json));
+}
+
+#[test]
+fn a_format_outside_the_three_is_rejected() {
+    assert!(
+        Cli::try_parse_from(["machete", "build", "--format", "xml"]).is_err(),
+        "xml was accepted"
+    );
+}
+
+#[test]
+fn the_flags_reach_the_subcommand_too() {
+    let cli =
+        Cli::try_parse_from(["machete", "init", "sitio", "--format", "jsonl"]).expect("accepted");
+    assert_eq!(cli.format, Some(Format::Jsonl));
+    assert!(matches!(cli.command, Command::Init(_)));
+}
+
+#[test]
+fn a_bare_word_after_quiet_is_read_as_the_target() {
+    // `json` has no flag of its own here, so it lands in input:output, where it
+    // is refused for not having a colon.
+    let cli = Cli::try_parse_from(["machete", "build", "--quiet", "json"]).expect("accepted");
+    let Command::Build(args) = cli.command else {
+        panic!("expected the build command");
+    };
+    assert!(args.parse().is_err(), "a bare word was taken as a target");
 }
