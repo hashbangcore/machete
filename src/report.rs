@@ -23,9 +23,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 /// How a run writes down what happened.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum Format {
-    /// Words for a person.
     Plain,
-    /// A JSON object per record, one per line.
     Json,
 }
 

@@ -4,62 +4,54 @@
 //! handler. Both live here rather than in `main.rs` so the argument parsing can
 //! be exercised from tests without spawning a process.
 
-use crate::build::{Config, Overrides, build, write_scaffold};
+use crate::build::{build, write_scaffold, Config, Overrides};
 use crate::error::BuildError;
 use crate::report::{self, Format};
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use std::path::{Path, PathBuf};
 
-/// Static site generator that composes HTML from components, layouts and
-/// variables.
+/// Static site generator.
 #[derive(Debug, Parser)]
 #[command(name = "machete", version, about, long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
 
-    /// How to write down what happened.
-    #[arg(long, value_enum, value_name = "FORMATO", global = true)]
+    /// Output format.
+    #[arg(long, value_enum, value_name = "FORMAT", global = true)]
     pub format: Option<Format>,
 
-    /// Say nothing at all, whatever the format says.
+    /// Quiet mode
     #[arg(long, global = true)]
     pub quiet: bool,
 }
 
-/// The output format a run uses when `--format` does not name one.
-pub const DEFAULT_FORMAT: Format = Format::Plain;
-
-/// The commands `machete` accepts.
+/// The commands.
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Expand a site's templates into finished HTML pages.
+    /// Generate static pages
     Build(BuildArgs),
 
-    /// Create the directory layout and config file for a new site.
+    /// Scaffold a project
     Init(InitArgs),
 
-    /// Print a shell completion script to stdout.
+    /// Print a completion script.
     Completions(CompletionsArgs),
 }
 
 /// Arguments for `machete build`.
-///
-/// Paths follow the Sass shape, `input:output`. Either side may be left empty,
-/// and an empty side is filled in from `machete.toml` rather than defaulted here,
-/// so `machete build :dist` writes to `dist` only when the config says so.
 #[derive(Debug, Args)]
 pub struct BuildArgs {
     /// Source and destination, separated by a colon.
     #[arg(value_name = "INPUT:OUTPUT")]
     pub target: Option<String>,
 
-    /// Directory holding the templates.
+    /// Templates directory.
     #[arg(short, long, value_name = "DIR")]
     pub templates: Option<PathBuf>,
 
-    /// Directory holding the static files.
+    /// Assets directory.
     #[arg(short = 'a', long, value_name = "DIR")]
     pub assets: Option<PathBuf>,
 }
@@ -131,12 +123,9 @@ fn non_empty(text: &str) -> Option<PathBuf> {
 }
 
 /// Arguments for `machete init`.
-///
-/// Takes at most one bare path: the directory to create. With none, the site
-/// lands in the current directory.
 #[derive(Debug, Args)]
 pub struct InitArgs {
-    /// Directory to create the new site in.
+    /// Target directory for the new project
     #[arg(value_name = "PATH")]
     pub path: Option<PathBuf>,
 }
