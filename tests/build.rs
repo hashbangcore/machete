@@ -68,7 +68,7 @@ fn builds_a_page_into_the_output_directory() {
     minimal_site(&workspace);
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     assert!(out.join("index.html").exists());
     let page = workspace.read("out/index.html");
@@ -78,10 +78,12 @@ fn builds_a_page_into_the_output_directory() {
 #[test]
 fn the_output_holds_no_machete_markup() {
     let workspace = Workspace::new("build-clean");
-    write(&workspace.path, false).expect("init writes the scaffold");
+    let site = workspace.join("sitio");
+    write(&site).expect("init writes the scaffold");
 
+    let config = Config::load(&site).expect("the site loads");
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&config, &out).expect("the build succeeds");
 
     let page = workspace.read("out/index.html");
 
@@ -135,7 +137,7 @@ fn globals_reach_a_component_through_the_layout() {
     );
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     let page = workspace.read("out/index.html");
     assert!(page.contains("<title>machete</title>"), "page was {page}");
@@ -155,7 +157,7 @@ fn a_component_may_take_content() {
     );
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     assert!(
         workspace
@@ -179,7 +181,7 @@ fn a_component_may_take_variables_from_a_data_block() {
     );
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     assert!(workspace.read("out/index.html").contains("<h2>hola</h2>"));
 }
@@ -195,24 +197,50 @@ fn a_component_named_from_a_non_standard_file_is_usable() {
     );
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     assert!(workspace.read("out/index.html").contains("<nav>menu</nav>"));
 }
 
 #[test]
-fn force_empties_the_output_first() {
-    let workspace = Workspace::new("build-force");
+fn the_output_is_emptied_before_anything_is_written() {
+    let workspace = Workspace::new("build-fresh");
     minimal_site(&workspace);
 
     let out = workspace.join("out");
-    std::fs::create_dir_all(&out).expect("can create the output");
-    std::fs::write(out.join("stale.html"), "viejo").expect("can write the stale file");
+    std::fs::create_dir_all(out.join("viejo/deep")).expect("can create the output");
+    std::fs::write(out.join("stale.html"), "viejo").expect("can write a stale file");
+    std::fs::write(out.join("viejo/deep/otro.html"), "mas viejo").expect("can write it");
 
-    build(&workspace.site(), &out, true).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
-    assert!(!out.join("stale.html").exists());
     assert!(out.join("index.html").exists());
+    // The output holds exactly what this build produced: a page removed from
+    // the templates does not survive from an earlier build.
+    assert!(!out.join("stale.html").exists(), "a stale file survives");
+    assert!(!out.join("viejo").exists(), "an old directory survives");
+}
+
+#[test]
+fn a_site_with_no_pages_keeps_its_output() {
+    let workspace = Workspace::new("build-empty-keeps-output");
+    minimal_site(&workspace);
+    std::fs::remove_file(workspace.join("templates/index.html")).expect("can remove the page");
+
+    let out = workspace.join("out");
+    std::fs::create_dir_all(&out).expect("can create the output");
+    std::fs::write(out.join("stale.html"), "viejo").expect("can write a stale file");
+
+    let error = match build(&workspace.site(), &out) {
+        Err(error) => error,
+        Ok(()) => panic!("expected a no-pages error"),
+    };
+    assert!(matches!(error, BuildError::NoPages { .. }));
+
+    assert!(
+        out.join("stale.html").exists(),
+        "the output was taken down even though there was nothing to build"
+    );
 }
 
 #[test]
@@ -221,7 +249,7 @@ fn a_layout_is_never_built_as_a_page() {
     minimal_site(&workspace);
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     assert!(!out.join("layout.html").exists());
 }
@@ -233,7 +261,7 @@ fn partials_are_never_built_as_pages() {
     workspace.write("templates/partials/card.html", "<div>carta</div>\n");
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     assert!(!out.join("card.html").exists());
 }
@@ -248,7 +276,7 @@ fn a_missing_layout_is_reported() {
     );
 
     let out = workspace.join("out");
-    let error = build(&workspace.site(), &out, false).expect_err("the build fails");
+    let error = build(&workspace.site(), &out).expect_err("the build fails");
     assert!(format!("{error}").contains("layout"), "error was {error}");
 }
 
@@ -262,7 +290,7 @@ fn an_unknown_component_is_reported() {
     );
 
     let out = workspace.join("out");
-    let error = build(&workspace.site(), &out, false).expect_err("the build fails");
+    let error = build(&workspace.site(), &out).expect_err("the build fails");
     assert!(format!("{error}").contains("nope"), "error was {error}");
 }
 
@@ -276,7 +304,7 @@ fn an_unresolved_variable_is_reported() {
     );
 
     let out = workspace.join("out");
-    let error = build(&workspace.site(), &out, false).expect_err("the build fails");
+    let error = build(&workspace.site(), &out).expect_err("the build fails");
     assert!(format!("{error}").contains("nope"), "error was {error}");
 }
 
@@ -290,7 +318,7 @@ fn a_data_block_outside_a_component_is_reported() {
     );
 
     let out = workspace.join("out");
-    let error = build(&workspace.site(), &out, false).expect_err("the build fails");
+    let error = build(&workspace.site(), &out).expect_err("the build fails");
     assert!(
         format!("{error}").contains("inside a component"),
         "error was {error}"
@@ -329,8 +357,9 @@ fn a_directory_without_a_config_is_not_a_project() {
 #[test]
 fn init_writes_every_scaffold_file() {
     let workspace = Workspace::new("init-files");
+    let site = workspace.join("sitio");
 
-    write(&workspace.path, true).expect("init writes the scaffold");
+    write(&site).expect("init writes the scaffold");
 
     for relative in [
         "machete.toml",
@@ -340,28 +369,22 @@ fn init_writes_every_scaffold_file() {
         "templates/partials/header.html",
         "assets/css/style.css",
     ] {
-        assert!(workspace.join(relative).exists(), "{relative} is missing");
+        assert!(site.join(relative).exists(), "{relative} is missing");
     }
 }
 
 #[test]
-fn init_leaves_existing_files_alone_without_force() {
-    let workspace = Workspace::new("init-no-force");
+fn init_does_nothing_when_the_directory_exists() {
+    let workspace = Workspace::new("init-existing");
     workspace.write("machete.toml", "[data]\ntitle = \"mio\"\n");
 
-    write(&workspace.path, false).expect("init runs");
+    write(&workspace.path).expect("init runs");
 
     assert_eq!(workspace.read("machete.toml"), "[data]\ntitle = \"mio\"\n");
-}
-
-#[test]
-fn init_overwrites_with_force() {
-    let workspace = Workspace::new("init-force");
-    workspace.write("machete.toml", "[data]\ntitle = \"mio\"\n");
-
-    write(&workspace.path, true).expect("init runs");
-
-    assert_ne!(workspace.read("machete.toml"), "[data]\ntitle = \"mio\"\n");
+    assert!(
+        !workspace.join("templates/layout.html").exists(),
+        "nothing from the scaffold was written"
+    );
 }
 
 #[test]
@@ -370,14 +393,16 @@ fn the_generated_site_builds_to_the_same_page() {
     // in the repository must not drift apart.
     let from_init = Workspace::new("roundtrip-init");
     let from_repo = Workspace::new("roundtrip-repo");
+    let generado = from_init.join("sitio");
 
-    write(&from_init.path, true).expect("init writes the scaffold");
+    write(&generado).expect("init writes the scaffold");
     copy_scaffold(Path::new("docs/scaffold"), &from_repo.path);
 
     let a = from_init.join("out");
     let b = from_repo.join("out");
-    build(&from_init.site(), &a, false).expect("the generated site builds");
-    build(&from_repo.site(), &b, false).expect("the repository site builds");
+    let config = Config::load(&generado).expect("the generated site loads");
+    build(&config, &a).expect("the generated site builds");
+    build(&from_repo.site(), &b).expect("the repository site builds");
 
     assert_eq!(
         from_init.read("out/index.html"),
@@ -452,7 +477,7 @@ fn a_site_with_templates_but_no_pages_is_reported() {
     std::fs::create_dir_all(workspace.join("templates")).expect("creates templates");
 
     let out = workspace.join("out");
-    let error = build(&workspace.site(), &out, false).expect_err("nothing to build");
+    let error = build(&workspace.site(), &out).expect_err("nothing to build");
     assert!(matches!(error, BuildError::NoPages { .. }));
     assert!(!out.join("index.html").exists());
 }
@@ -464,7 +489,7 @@ fn the_site_root_is_the_directory_holding_config_toml() {
 
     // Building from the site root works and produces the page.
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
     assert!(out.join("index.html").exists());
 }
 
@@ -481,7 +506,7 @@ fn the_output_comes_from_the_configuration_by_default() {
     let out = config.output_dir(None);
 
     assert_eq!(out, workspace.join("sitio"));
-    build(&config, &out, false).expect("the build succeeds");
+    build(&config, &out).expect("the build succeeds");
     assert!(workspace.join("sitio/index.html").exists());
 }
 
@@ -532,7 +557,7 @@ fn a_site_without_paths_still_builds_to_public() {
 
     let config = workspace.site();
     let out = config.output_dir(None);
-    build(&config, &out, false).expect("the build succeeds");
+    build(&config, &out).expect("the build succeeds");
     assert!(out.join("index.html").exists());
 }
 
@@ -552,7 +577,7 @@ fn a_page_keeps_the_directory_it_sits_in() {
     );
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     assert!(out.join("post.html").exists(), "root page missing");
     assert!(out.join("blog/post.html").exists(), "nested page missing");
@@ -594,7 +619,7 @@ fn layout_data_overrides_the_base() {
     );
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     let about = workspace.read("out/about.html");
     assert!(about.contains("<main>about|es</main>"), "page was {about}");
@@ -615,7 +640,7 @@ fn layout_data_inherits_from_the_base() {
     );
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     // about overrides title but keeps lang from [data]
     assert!(
@@ -638,7 +663,7 @@ fn layouts_do_not_inherit_from_each_other() {
     );
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     assert!(
         workspace
@@ -696,7 +721,7 @@ fn a_loose_key_is_metadata_and_is_never_injected() {
     assert!(!config.data.contains_key("author"));
 
     let out = workspace.join("out");
-    build(&config, &out, false).expect("the build succeeds");
+    build(&config, &out).expect("the build succeeds");
 
     let page = workspace.read("out/index.html");
     assert!(!page.contains("hash"), "author reached the page: {page}");
@@ -754,7 +779,7 @@ fn any_structure_the_user_writes_beside_data_is_left_alone() {
     );
 
     let out = workspace.join("out");
-    build(&config, &out, false).expect("a foreign structure does not stop a build");
+    build(&config, &out).expect("a foreign structure does not stop a build");
     assert!(out.join("index.html").exists());
 }
 
@@ -768,7 +793,7 @@ fn assets_are_copied_untouched() {
     workspace.write("assets/bundles/one.js", "console.log(2)");
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     assert_eq!(workspace.read("out/main.css"), "body { color: red }");
     assert_eq!(workspace.read("out/css/main.css"), ".a { color: blue }");
@@ -782,7 +807,7 @@ fn a_site_without_assets_builds_fine() {
     minimal_site(&workspace);
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     assert!(out.join("index.html").exists());
 }
@@ -798,7 +823,7 @@ fn the_assets_directory_comes_from_the_configuration() {
     workspace.write("recursos/estilo.css", "h1 {}");
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     assert!(out.join("estilo.css").exists());
 }
@@ -827,7 +852,7 @@ fn a_url_in_the_configuration_writes_a_sitemap() {
     );
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     let sitemap = workspace.read("out/sitemap.xml");
     assert!(
@@ -843,7 +868,7 @@ fn a_site_without_a_url_writes_no_sitemap() {
     minimal_site(&workspace);
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     assert!(out.join("index.html").exists(), "the page is still written");
     assert!(!out.join("sitemap.xml").exists(), "no sitemap is written");
@@ -863,7 +888,7 @@ fn the_sitemap_can_be_turned_off_in_the_configuration() {
     );
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     assert!(
         out.join("index.html").exists(),
@@ -899,7 +924,7 @@ fn the_sitemap_lists_every_page_at_the_address_it_is_served_from() {
     workspace.write("assets/estilo.css", "h1 {}");
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     assert_eq!(
         locations(&workspace.read("out/sitemap.xml")),
@@ -928,7 +953,7 @@ fn the_sitemap_leaves_out_layouts_components_and_assets() {
     workspace.write("assets/estilo.css", "h1 {}");
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     assert_eq!(
         locations(&workspace.read("out/sitemap.xml")),
@@ -950,7 +975,7 @@ fn a_page_asking_not_to_be_indexed_is_left_out_of_the_sitemap() {
     );
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     assert!(out.join("404.html").exists(), "the page is still written");
     assert_eq!(
@@ -977,7 +1002,7 @@ fn noindex_is_read_from_the_whole_content_attribute() {
     );
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     assert_eq!(
         locations(&workspace.read("out/sitemap.xml")),
@@ -1006,7 +1031,7 @@ fn noindex_added_by_a_component_still_removes_the_page() {
     );
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     assert!(out.join("index.html").exists());
     assert_eq!(
@@ -1029,7 +1054,7 @@ fn a_trailing_slash_in_the_url_does_not_produce_a_double_slash() {
     );
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     assert_eq!(
         locations(&workspace.read("out/sitemap.xml")),
@@ -1048,7 +1073,7 @@ fn the_sitemap_the_build_writes_wins_over_one_shipped_as_an_asset() {
     workspace.write("assets/sitemap.xml", "<urlset>obsoleto</urlset>");
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     let sitemap = workspace.read("out/sitemap.xml");
     assert!(sitemap.contains("https://ejemplo.com/"), "was {sitemap}");
@@ -1072,7 +1097,7 @@ fn the_templates_directory_comes_from_the_configuration() {
     );
 
     let out = workspace.join("out");
-    build(&workspace.site(), &out, false).expect("the build succeeds");
+    build(&workspace.site(), &out).expect("the build succeeds");
 
     assert!(out.join("index.html").exists());
 }
@@ -1107,6 +1132,6 @@ fn a_flag_beats_the_configuration() {
     assert_eq!(config.templates, workspace.join("otro"));
 
     let out = workspace.join("out");
-    build(&config, &out, false).expect("the build succeeds");
+    build(&config, &out).expect("the build succeeds");
     assert!(out.join("index.html").exists());
 }

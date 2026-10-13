@@ -27,21 +27,14 @@ const SITEMAP: &str = "sitemap.xml";
 
 /// Reads every page from `config` and writes the finished HTML into `output`.
 ///
+/// The output directory is emptied first, so what ends up in it is exactly what
+/// this build produced and nothing else. A page deleted from the templates is
+/// gone from the output too, instead of lingering from an earlier build.
+///
 /// Static files are copied from `config.assets` into `output` untouched, keeping
 /// whatever directories they sit in, so `assets/css/main.css` lands at
 /// `output/css/main.css`.
-///
-/// With `force` set, `output` is emptied first so pages from an earlier build
-/// cannot survive alongside the new ones.
-pub fn build(config: &Config, output: &Path, force: bool) -> Result<(), BuildError> {
-    if force && output.exists() {
-        fs::remove_dir_all(output)
-            .map_err(|source| BuildError::Io(IoError::new("remove", output, source)))?;
-    }
-
-    fs::create_dir_all(output)
-        .map_err(|source| BuildError::Io(IoError::new("create directory", output, source)))?;
-
+pub fn build(config: &Config, output: &Path) -> Result<(), BuildError> {
     let defs = load_definitions(config)?;
     let pages = collect_pages(&config.templates)?;
 
@@ -50,6 +43,16 @@ pub fn build(config: &Config, output: &Path, force: bool) -> Result<(), BuildErr
             templates: config.templates.clone(),
         });
     }
+
+    // Emptied once the site is known to be buildable. Checking first means a
+    // site with no pages fails without taking its output down with it.
+    if output.exists() {
+        fs::remove_dir_all(output)
+            .map_err(|source| BuildError::Io(IoError::new("remove", output, source)))?;
+    }
+
+    fs::create_dir_all(output)
+        .map_err(|source| BuildError::Io(IoError::new("create directory", output, source)))?;
 
     // The paths are recorded as the pages are written rather than worked out a
     // second time for the sitemap, so the two cannot disagree about what exists.
@@ -763,18 +766,19 @@ fn scalar(value: toml::Value) -> String {
 
 /// Writes the scaffold for a new site into `root`.
 ///
-/// The files come from the `scaffold/` directory, embedded at compile time, so
-/// `init` produces the same site wherever it runs.
+/// The files come from the `docs/scaffold/` directory, embedded at compile
+/// time, so `init` produces the same site wherever it runs.
 ///
-/// Without `force`, a file that already exists is left alone, so running `init`
-/// twice does not overwrite work in progress.
-pub fn write_scaffold(root: &Path, force: bool) -> Result<(), BuildError> {
+/// A directory that already exists is left completely alone. An existing site
+/// belongs to whoever is working on it, and a scaffold is a starting point
+/// rather than something worth overwriting.
+pub fn write_scaffold(root: &Path) -> Result<(), BuildError> {
+    if root.exists() {
+        return Ok(());
+    }
+
     for entry in scaffold_files() {
         let path = root.join(entry.path);
-
-        if path.exists() && !force {
-            continue;
-        }
 
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|source| {

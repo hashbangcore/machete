@@ -94,9 +94,13 @@ fn the_invalid_target_message_names_what_it_wanted() {
 }
 
 #[test]
-fn force_travels_alongside_a_target() {
-    assert!(build_args(Some("a:b"), &["-f"]).force);
-    assert!(!build_args(Some("a:b"), &[]).force);
+fn build_no_longer_takes_force() {
+    for flag in ["-f", "--force"] {
+        assert!(
+            Cli::try_parse_from(["machete", "build", "a:b", flag]).is_err(),
+            "{flag} was accepted by build"
+        );
+    }
 }
 
 #[test]
@@ -118,9 +122,13 @@ fn init_takes_a_nested_path() {
 }
 
 #[test]
-fn init_takes_force() {
-    assert!(init_args(&["-f"]).force);
-    assert!(init_args(&["new-site", "-f"]).force);
+fn init_no_longer_takes_force() {
+    for flag in ["-f", "--force"] {
+        assert!(
+            Cli::try_parse_from(["machete", "init", "nuevo", flag]).is_err(),
+            "{flag} was accepted by init"
+        );
+    }
 }
 
 #[test]

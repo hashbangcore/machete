@@ -50,10 +50,6 @@ pub struct BuildArgs {
     /// Directory holding the static files.
     #[arg(short = 'a', long, value_name = "DIR")]
     pub assets: Option<PathBuf>,
-
-    /// Empty the output directory before writing.
-    #[arg(short, long)]
-    pub force: bool,
 }
 
 impl BuildArgs {
@@ -131,10 +127,6 @@ pub struct InitArgs {
     /// Directory to create the new site in.
     #[arg(value_name = "PATH")]
     pub path: Option<PathBuf>,
-
-    /// Overwrite files that already exist instead of leaving them untouched.
-    #[arg(short, long)]
-    pub force: bool,
 }
 
 impl InitArgs {
@@ -158,9 +150,9 @@ pub fn run(cli: Cli) -> Result<(), BuildError> {
         Command::Build(args) => {
             let target = args.parse()?;
             let config = Config::load_with(&target.input(), &args.overrides())?;
-            build(&config, &config.output_dir(target.output()), args.force)
+            build(&config, &config.output_dir(target.output()))
         }
-        Command::Init(args) => write_scaffold(&args.target(), args.force),
+        Command::Init(args) => write_scaffold(&args.target()),
         Command::Completions(args) => completions(args),
     }
 }
