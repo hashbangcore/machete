@@ -168,11 +168,7 @@ fn format_defaults_to_plain_when_it_is_not_named() {
 
 #[test]
 fn format_is_named_with_a_long_flag_only() {
-    for (nombre, esperado) in [
-        ("plain", Format::Plain),
-        ("json", Format::Json),
-        ("jsonl", Format::Jsonl),
-    ] {
+    for (nombre, esperado) in [("plain", Format::Plain), ("json", Format::Json)] {
         let cli = Cli::try_parse_from(["machete", "build", "--format", nombre]).expect("accepted");
         assert_eq!(cli.format, Some(esperado), "for --format {nombre}");
     }
@@ -213,8 +209,8 @@ fn a_format_outside_the_three_is_rejected() {
 #[test]
 fn the_flags_reach_the_subcommand_too() {
     let cli =
-        Cli::try_parse_from(["machete", "init", "sitio", "--format", "jsonl"]).expect("accepted");
-    assert_eq!(cli.format, Some(Format::Jsonl));
+        Cli::try_parse_from(["machete", "init", "sitio", "--format", "json"]).expect("accepted");
+    assert_eq!(cli.format, Some(Format::Json));
     assert!(matches!(cli.command, Command::Init(_)));
 }
 

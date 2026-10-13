@@ -25,10 +25,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 pub enum Format {
     /// Words for a person.
     Plain,
-    /// A JSON object per record.
+    /// A JSON object per record, one per line.
     Json,
-    /// A JSON object per line, to append to a file of records.
-    Jsonl,
 }
 
 /// The run's identity, resolved once at startup.
@@ -147,7 +145,7 @@ pub fn success(output: Option<&Path>, pages: usize, assets: usize) {
             run.command,
             run.input.clone(),
             run.timestamp.clone(),
-            run.started.elapsed().as_millis(),
+            run.started.elapsed().as_millis() as u64,
         )
     }) else {
         return;
@@ -188,7 +186,7 @@ pub fn success(output: Option<&Path>, pages: usize, assets: usize) {
             );
         }
 
-        Format::Json | Format::Jsonl => tracing::info!(
+        Format::Json => tracing::info!(
             status = "success",
             command = command,
             input = %input,
@@ -228,7 +226,7 @@ pub fn scaffolded(path: &Path, files: usize) {
             tracing::info!("{}", paint(use_color(), VERDE, &texto));
         }
 
-        Format::Json | Format::Jsonl => {
+        Format::Json => {
             let Some((command, input, timestamp)) = identity() else {
                 return;
             };
@@ -270,7 +268,7 @@ pub fn warning(reason: &str) {
             paint(use_color(), AMARILLO, &format!("warning: {reason}"))
         ),
 
-        Format::Json | Format::Jsonl => tracing::warn!(
+        Format::Json => tracing::warn!(
             status = "warning",
             command = command,
             input = %input,
@@ -296,7 +294,7 @@ pub fn failure(reason: &str) {
             tracing::error!("{}", paint(use_color(), ROJO, &format!("error: {reason}")))
         }
 
-        Format::Json | Format::Jsonl => tracing::error!(
+        Format::Json => tracing::error!(
             status = "error",
             command = command,
             input = %input,

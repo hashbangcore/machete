@@ -62,7 +62,7 @@ fn init_tracing() {
                 .init();
         }
 
-        Format::Json | Format::Jsonl => {
+        Format::Json => {
             tracing_subscriber::fmt()
                 .json()
                 .flatten_event(true)
