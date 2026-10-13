@@ -155,6 +155,8 @@ pub enum BuildError {
     InvalidBuildValue { key: &'static str, found: String },
     /// The output directory would hold the site's own sources.
     OutputInsideSite { output: PathBuf, templates: PathBuf },
+    /// The input directory is not there at all.
+    InputMissing { input: PathBuf },
     /// A filesystem operation failed.
     Io(IoError),
     /// `machete.toml` could not be parsed.
@@ -343,6 +345,12 @@ impl fmt::Display for BuildError {
             Self::InvalidBuildValue { key, found } => {
                 write!(f, "'{key}' in [build] expects true or false, found {found}")
             }
+            Self::InputMissing { input } => write!(
+                f,
+                "{} is not there. Check the path, or run `machete init` to \
+                 create a site there",
+                input.display()
+            ),
             Self::OutputInsideSite { output, templates } => write!(
                 f,
                 "{} would hold {} inside it. The output cannot be the site \

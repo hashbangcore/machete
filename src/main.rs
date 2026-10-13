@@ -20,7 +20,9 @@ fn main() -> ExitCode {
             // still a failure, because nothing was built and a script must be
             // able to tell.
             match &error {
-                BuildError::OutputInsideSite { .. } => report::warning(&error.to_string()),
+                BuildError::OutputInsideSite { .. } | BuildError::InputMissing { .. } => {
+                    report::warning(&error.to_string())
+                }
                 _ => report::failure(&error.to_string()),
             }
 

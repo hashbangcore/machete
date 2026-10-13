@@ -521,6 +521,15 @@ impl Config {
     ///
     /// A flag beats the file, and the file beats the default.
     pub fn load_with(root: &Path, overrides: &Overrides) -> Result<Self, BuildError> {
+        // Checked before the config file, because a directory that is not there
+        // is not a site without a config: it is not there, and saying so is the
+        // difference between a typo and a project that was never started.
+        if !root.is_dir() {
+            return Err(BuildError::InputMissing {
+                input: root.to_path_buf(),
+            });
+        }
+
         let path = root.join(CONFIG_FILE);
         let parsed = match std::fs::read_to_string(&path) {
             Ok(text) => parse_config(&text, &path)?,

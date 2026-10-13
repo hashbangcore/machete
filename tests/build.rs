@@ -1194,3 +1194,29 @@ fn init_reports_that_it_ran() {
 
     assert!(site.join("machete.toml").exists());
 }
+
+#[test]
+fn a_missing_input_is_told_apart_from_a_directory_without_a_config() {
+    let workspace = Workspace::new("build-missing-input");
+
+    let error = match Config::load(&workspace.join("no-existe")) {
+        Err(error) => error,
+        Ok(_) => panic!("a directory that is not there loaded as a site"),
+    };
+
+    assert!(matches!(error, BuildError::InputMissing { .. }));
+}
+
+#[test]
+fn a_directory_without_a_config_still_reports_no_config() {
+    let workspace = Workspace::new("build-no-config");
+
+    std::fs::create_dir_all(&workspace.path).expect("can create the directory");
+
+    let error = match Config::load(&workspace.path) {
+        Err(error) => error,
+        Ok(_) => panic!("a directory without a config loaded as a site"),
+    };
+
+    assert!(matches!(error, BuildError::NoConfig { .. }));
+}
