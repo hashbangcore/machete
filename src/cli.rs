@@ -4,7 +4,7 @@
 //! handler. Both live here rather than in `main.rs` so the argument parsing can
 //! be exercised from tests without spawning a process.
 
-use crate::build::{build, write_scaffold, Config, Overrides};
+use crate::build::{Config, Overrides, build, write_scaffold};
 use crate::error::BuildError;
 use crate::report::{self, Format};
 use clap::{Args, CommandFactory, Parser, Subcommand};

@@ -10,7 +10,7 @@
 //! 5. [`vars::substitute`] resolves `{variable}` references.
 //! 6. [`html::render`] writes the tree back out as HTML.
 //!
-//! Only [`build`] touches the filesystem. Everything else is a
+//! Only [`build`] and [`manifest`] touch the filesystem. Everything else is a
 //! function from input to output, so each stage is testable on its own.
 //!
 //! # Output
@@ -27,12 +27,15 @@
 //! - [`vars`] resolves variable values.
 //! - [`compose`] combines components and applies layouts.
 //! - [`sitemap`] renders the sitemap from the pages a build wrote.
+//! - [`manifest`] records what a build wrote, so the next one can take away
+//!   exactly that and nothing else.
 
 pub mod build;
 pub mod cli;
 pub mod compose;
 pub mod error;
 pub mod html;
+pub mod manifest;
 pub mod node;
 pub mod report;
 pub mod sitemap;

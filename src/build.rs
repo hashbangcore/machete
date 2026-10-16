@@ -9,7 +9,9 @@
 use crate::compose::{self, Defs, apply_layout, extract_layout};
 use crate::error::{BuildError, ExpandError, IoError, LayoutError};
 use crate::html::{parse, render};
+use crate::manifest;
 use crate::node::Node;
+use crate::report;
 use crate::sitemap;
 use crate::vars::{Bindings, Scope, substitute};
 use std::collections::HashMap;
@@ -42,9 +44,16 @@ pub struct Built {
 /// Reads every page from `config` and writes the finished HTML into `output`,
 /// returning what it produced.
 ///
-/// The output directory is emptied first, so what ends up in it is exactly what
-/// this build produced and nothing else. A page deleted from the templates is
-/// gone from the output too, instead of lingering from an earlier build.
+/// Before writing, the files a previous build wrote are removed, so a page
+/// deleted from the templates is gone from the output too, instead of lingering
+/// from an earlier build. Files machete never wrote are left alone: the output
+/// is shared with whatever else the site is built with, and a `bundle.js` a
+/// bundler put there belongs to it. [`manifest`] keeps the record of which is
+/// which.
+///
+/// Every page is built in memory before any of that happens, so a page with a
+/// variable nobody gave a value fails the build with the last good output
+/// standing, rather than with half a directory.
 ///
 /// Static files are copied from `config.assets` into `output` untouched, keeping
 /// whatever directories they sit in, so `assets/css/main.css` lands at
@@ -69,38 +78,68 @@ pub fn build(config: &Config, output: &Path) -> Result<Built, BuildError> {
         });
     }
 
-    // Emptied once the site is known to be buildable. Checking first means a
-    // site with no pages fails without taking its output down with it.
-    if output.exists() {
-        fs::remove_dir_all(output)
-            .map_err(|source| BuildError::Io(IoError::new("remove", output, source)))?;
+    // All of them, before the output is touched: a page that cannot be built is
+    // a build that fails without having taken anything away.
+    let built: Vec<Page> = pages
+        .iter()
+        .map(|path| build_page(config, &defs, path))
+        .collect::<Result<Vec<_>, BuildError>>()?;
+
+    let assets = plan_assets(config)?;
+    let sitemap_base = sitemap_base(config);
+
+    // What this build puts in the output, worked out before a file is written.
+    // The record is written from this same list, so the two cannot disagree
+    // about what belongs there.
+    let mut recorded: Vec<PathBuf> = built.iter().map(|page| page.relative.clone()).collect();
+    recorded.extend(assets.iter().map(|(_, relative)| relative.clone()));
+
+    if sitemap_base.is_some() {
+        recorded.push(PathBuf::from(SITEMAP));
     }
 
-    fs::create_dir_all(output)
-        .map_err(|source| BuildError::Io(IoError::new("create directory", output, source)))?;
+    // Recorded before those files exist rather than after, so a build that
+    // stops halfway is still described by its record.
+    manifest::prepare(output)?;
+    manifest::write(output, &recorded)?;
 
-    // The paths are recorded as the pages are written rather than worked out a
-    // second time for the sitemap, so the two cannot disagree about what exists.
-    let mut written = Vec::new();
-
-    for path in pages {
-        let relative = relative_output_path(&path, &config.templates);
-        let page = build_page(config, &defs, &path)?;
-        write_page(output, &relative, &page.html)?;
-
-        if page.indexable {
-            written.push(relative);
-        }
+    for page in &built {
+        write_page(output, &page.relative, &page.html)?;
     }
 
-    let assets = copy_assets(config, output)?;
-    let sitemap = write_sitemap(config, output, &written)?;
+    let copied = copy_assets(&assets, output)?;
+
+    // Taken from the pages that were written rather than worked out again, so
+    // the count the report says and the list the sitemap holds cannot differ.
+    let indexable: Vec<PathBuf> = built
+        .iter()
+        .filter(|page| page.indexable)
+        .map(|page| page.relative.clone())
+        .collect();
+
+    let sitemap = write_sitemap(sitemap_base.as_deref(), output, &indexable)?;
 
     Ok(Built {
-        pages: written.len(),
-        assets,
+        pages: indexable.len(),
+        assets: copied,
         sitemap,
     })
+}
+
+/// Returns the address a sitemap would be written for, when there is one.
+///
+/// Two conditions, and the first comes first: turning the sitemap off is an
+/// explicit choice, so there is nothing to look for once it has been made. A
+/// site without a URL has no absolute address to write.
+///
+/// The plan and the write ask this once each and get the same answer, so the
+/// record cannot name a sitemap the build then does not write.
+fn sitemap_base(config: &Config) -> Option<String> {
+    if !config.sitemap {
+        return None;
+    }
+
+    config.url.clone()
 }
 
 /// Writes `sitemap.xml` when the site says where it is published.
@@ -109,14 +148,8 @@ pub fn build(config: &Config, output: &Path) -> Result<Built, BuildError> {
 /// write, and a sitemap of relative paths would be worse than no sitemap: it
 /// would be rejected. This runs after the assets so that it wins over an
 /// `assets/sitemap.xml` the site may carry of its own.
-fn write_sitemap(config: &Config, output: &Path, pages: &[PathBuf]) -> Result<bool, BuildError> {
-    // Checked before the URL: turning the sitemap off is an explicit choice,
-    // so there is nothing to look for once it has been made.
-    if !config.sitemap {
-        return Ok(false);
-    }
-
-    let Some(base) = config.url.as_deref() else {
+fn write_sitemap(base: Option<&str>, output: &Path, pages: &[PathBuf]) -> Result<bool, BuildError> {
+    let Some(base) = base else {
         return Ok(false);
     };
 
@@ -128,17 +161,23 @@ fn write_sitemap(config: &Config, output: &Path, pages: &[PathBuf]) -> Result<bo
     Ok(true)
 }
 
-/// Copies every file under `config.assets` into `output`, unchanged.
+/// Lists the files to copy from `config.assets`, each with the path it takes
+/// inside the output.
 ///
 /// The layout of the source directory is kept, so a file inside `css/` stays
-/// inside `css/`. A site with no assets directory simply has nothing to copy.
-fn copy_assets(config: &Config, output: &Path) -> Result<usize, BuildError> {
+/// inside `css/`. Listed rather than copied so the whole set is known before
+/// anything is written: the record has to name what is copied, and it is
+/// written first. A site with no assets directory simply has nothing to copy.
+///
+/// An asset whose name in the output is the record's own is left behind. The
+/// record is written before the copies, so copying it would put the site's file
+/// where the record goes, and the next build would read that file as the record.
+fn plan_assets(config: &Config) -> Result<Vec<(PathBuf, PathBuf)>, BuildError> {
     if !config.assets.is_dir() {
-        return Ok(0);
+        return Ok(Vec::new());
     }
 
-    let mut copied = 0;
-
+    let mut planned = Vec::new();
     let mut pending = vec![config.assets.clone()];
 
     while let Some(dir) = pending.pop() {
@@ -157,34 +196,59 @@ fn copy_assets(config: &Config, output: &Path) -> Result<usize, BuildError> {
 
             let relative = path
                 .strip_prefix(&config.assets)
-                .expect("path came from walking the assets directory");
-            let target = output.join(relative);
+                .expect("path came from walking the assets directory")
+                .to_path_buf();
 
-            if let Some(parent) = target.parent() {
-                fs::create_dir_all(parent).map_err(|source| {
-                    BuildError::Io(IoError::new("create directory", parent, source))
-                })?;
+            if relative == Path::new(manifest::FILE) {
+                report::warning(&format!(
+                    "{}/{} was not copied: that name belongs to the record, and the \
+                     record is written first. Rename the asset to publish it",
+                    config.assets.display(),
+                    manifest::FILE
+                ));
+                continue;
             }
 
-            fs::copy(&path, &target)
-                .map_err(|source| BuildError::Io(IoError::new("copy", &path, source)))?;
-
-            copied += 1;
+            planned.push((path, relative));
         }
+    }
+
+    Ok(planned)
+}
+
+/// Copies the planned assets into `output`, unchanged, returning how many.
+fn copy_assets(planned: &[(PathBuf, PathBuf)], output: &Path) -> Result<usize, BuildError> {
+    let mut copied = 0;
+
+    for (from, relative) in planned {
+        let target = output.join(relative);
+
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(|source| {
+                BuildError::Io(IoError::new("create directory", parent, source))
+            })?;
+        }
+
+        fs::copy(from, &target)
+            .map_err(|source| BuildError::Io(IoError::new("copy", from, source)))?;
+
+        copied += 1;
     }
 
     Ok(copied)
 }
 
-/// One finished page: the HTML to write, and whether a search engine should be
-/// told about it.
+/// One finished page: where it goes in the output, the HTML to write, and
+/// whether a search engine should be told about it.
 struct Page {
+    relative: PathBuf,
     html: String,
     indexable: bool,
 }
 
 /// Builds one page and returns what to write for it.
 fn build_page(config: &Config, defs: &Defs, path: &Path) -> Result<Page, BuildError> {
+    let relative = relative_output_path(path, &config.templates);
     let parsed = read_page(path)?;
 
     let extracted = extract_layout(parsed).map_err(|source| BuildError::Layout {
@@ -230,6 +294,7 @@ fn build_page(config: &Config, defs: &Defs, path: &Path) -> Result<Page, BuildEr
     })?;
 
     Ok(Page {
+        relative,
         html: render(&page),
         indexable: is_indexable(&page),
     })
@@ -330,6 +395,11 @@ fn read_page(path: &Path) -> Result<Node, BuildError> {
 /// The output is emptied before writing, so if it is the site directory or an
 /// ancestor of it, the templates would be gone before the first page is read.
 /// Both `public = "."` and `machete build .:.` come to this.
+///
+/// The emptying is narrower than it was: an output with a record only loses the
+/// files a build wrote. The check stays all the same, because the one case that
+/// is still wholesale is the output with no record in it, and because nothing
+/// should be reading and writing the same directory either way.
 ///
 /// Compared lexically, on purpose. Canonicalising would resolve symlinks and
 /// need both paths to exist, and the question here is what the paths *say*, not
