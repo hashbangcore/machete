@@ -203,7 +203,7 @@ fn a_component_named_from_a_non_standard_file_is_usable() {
 }
 
 #[test]
-fn the_output_is_emptied_before_anything_is_written() {
+fn an_output_with_no_record_is_emptied() {
     let workspace = Workspace::new("build-fresh");
     minimal_site(&workspace);
 
@@ -215,10 +215,259 @@ fn the_output_is_emptied_before_anything_is_written() {
     build(&workspace.site(), &out).expect("the build succeeds");
 
     assert!(out.join("index.html").exists());
-    // The output holds exactly what this build produced: a page removed from
-    // the templates does not survive from an earlier build.
+    // With nothing saying what belongs there, every file is stale. This is the
+    // first build of a directory, and the only one that pays for it: the build
+    // that empties it writes the record that keeps it from happening again.
     assert!(!out.join("stale.html").exists(), "a stale file survives");
     assert!(!out.join("viejo").exists(), "an old directory survives");
+}
+
+#[test]
+fn a_file_another_tool_wrote_survives_the_build() {
+    let workspace = Workspace::new("build-foreign");
+    minimal_site(&workspace);
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out).expect("the build succeeds");
+
+    // What a bundler leaves behind between two builds. It is not in the record,
+    // so it is not machete's to take away.
+    std::fs::write(out.join("bundle.js"), "console.log(1)").expect("can write it");
+
+    build(&workspace.site(), &out).expect("the build succeeds");
+
+    assert!(
+        out.join("bundle.js").exists(),
+        "a file machete never wrote is gone"
+    );
+    assert_eq!(workspace.read("out/bundle.js"), "console.log(1)");
+    assert!(out.join("index.html").exists(), "the page is not written");
+}
+
+#[test]
+fn a_page_removed_from_the_templates_is_taken_away() {
+    let workspace = Workspace::new("build-page-gone");
+    minimal_site(&workspace);
+    workspace.write(
+        "templates/otra.html",
+        "<html type=\"layout\"/>\n<main>otra</main>\n",
+    );
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out).expect("the first build succeeds");
+    assert!(out.join("otra.html").exists());
+
+    std::fs::remove_file(workspace.join("templates/otra.html")).expect("can remove the page");
+    build(&workspace.site(), &out).expect("the second build succeeds");
+
+    assert!(
+        !out.join("otra.html").exists(),
+        "a page removed from the templates survives in the output"
+    );
+    assert!(out.join("index.html").exists(), "the other page is missing");
+}
+
+#[test]
+fn an_asset_removed_from_the_sources_is_taken_away() {
+    let workspace = Workspace::new("build-asset-gone");
+    minimal_site(&workspace);
+    workspace.write("assets/css/main.css", "body { color: red }");
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out).expect("the first build succeeds");
+    assert!(out.join("css/main.css").exists());
+
+    std::fs::remove_file(workspace.join("assets/css/main.css")).expect("can remove the asset");
+    build(&workspace.site(), &out).expect("the second build succeeds");
+
+    assert!(
+        !out.join("css/main.css").exists(),
+        "a copy of an asset that is gone survives"
+    );
+}
+
+#[test]
+fn a_directory_the_build_emptied_is_taken_away() {
+    let workspace = Workspace::new("build-empty-dir");
+    minimal_site(&workspace);
+    workspace.write(
+        "templates/blog/post.html",
+        "<html type=\"layout\"/>\n<main>post</main>\n",
+    );
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out).expect("the first build succeeds");
+    assert!(out.join("blog").is_dir());
+
+    std::fs::remove_file(workspace.join("templates/blog/post.html")).expect("can remove the page");
+    build(&workspace.site(), &out).expect("the second build succeeds");
+
+    assert!(!out.join("blog").exists(), "an empty directory survives");
+}
+
+#[test]
+fn a_file_from_another_tool_keeps_the_directory_it_shares() {
+    let workspace = Workspace::new("build-foreign-dir");
+    minimal_site(&workspace);
+    workspace.write(
+        "templates/blog/post.html",
+        "<html type=\"layout\"/>\n<main>post</main>\n",
+    );
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out).expect("the first build succeeds");
+
+    std::fs::write(out.join("blog/otro.js"), "console.log(2)").expect("can write it");
+    std::fs::remove_file(workspace.join("templates/blog/post.html")).expect("can remove the page");
+
+    build(&workspace.site(), &out).expect("the second build succeeds");
+
+    assert!(!out.join("blog/post.html").exists(), "the page survives");
+    assert!(
+        out.join("blog/otro.js").exists(),
+        "a file machete never wrote is gone"
+    );
+    assert!(
+        out.join("blog").is_dir(),
+        "the directory it lives in is gone"
+    );
+}
+
+#[test]
+fn the_record_names_what_the_build_wrote() {
+    let workspace = Workspace::new("build-record");
+    workspace.write(
+        "machete.toml",
+        "[data]\ntitle = \"machete\"\n\n[build]\nurl = \"https://ejemplo.com\"\n",
+    );
+    workspace.write(
+        "templates/layout.html",
+        "<!DOCTYPE html>\n<html>\n<body>\n<content/>\n</body>\n</html>\n",
+    );
+    workspace.write(
+        "templates/index.html",
+        "<html type=\"layout\"/>\n<main>inicio</main>\n",
+    );
+    workspace.write(
+        "templates/blog/post.html",
+        "<html type=\"layout\"/>\n<main>post</main>\n",
+    );
+    workspace.write("assets/css/main.css", "body { color: red }");
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out).expect("the build succeeds");
+
+    let record = workspace.read("out/.manifest.toml");
+
+    assert_eq!(
+        record.trim(),
+        "files = [\"blog/post.html\", \"css/main.css\", \"index.html\", \"sitemap.xml\"]",
+        "the record is not the list of files this build wrote"
+    );
+}
+
+#[test]
+fn an_asset_that_would_overwrite_the_record_is_not_copied() {
+    let workspace = Workspace::new("build-record-clash");
+    minimal_site(&workspace);
+    workspace.write("assets/.manifest.toml", "un fichero del sitio\n");
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out).expect("the build succeeds");
+
+    // The record is written first, so copying the asset would leave the site
+    // file where the record goes and the next build would read it as the record.
+    assert_eq!(
+        workspace.read("out/.manifest.toml").trim(),
+        "files = [\"index.html\"]",
+        "the asset took the place of the record"
+    );
+}
+
+#[test]
+fn the_record_never_reaches_outside_the_output() {
+    let workspace = Workspace::new("build-record-escape");
+    minimal_site(&workspace);
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out).expect("the first build succeeds");
+
+    // A record is a file on disk that anyone can edit. A path climbing out of
+    // the output must not turn a build into something that deletes the site.
+    workspace.write(
+        "out/.manifest.toml",
+        "files = [\"../fuera.txt\", \"/tmp/machete-absoluto.txt\"]\n",
+    );
+    std::fs::write(workspace.join("fuera.txt"), "plantilla").expect("can write it");
+
+    build(&workspace.site(), &out).expect("the build succeeds");
+
+    assert!(
+        workspace.join("fuera.txt").exists(),
+        "a file outside the output was removed"
+    );
+}
+
+#[test]
+fn a_record_that_cannot_be_read_removes_nothing() {
+    let workspace = Workspace::new("build-record-broken");
+    minimal_site(&workspace);
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out).expect("the first build succeeds");
+
+    // Nothing is taken away on the word of something that could not be read.
+    // The build goes on and writes a record that can be.
+    workspace.write("out/.manifest.toml", "esto no es toml {{\n");
+    std::fs::write(out.join("stale.html"), "viejo").expect("can write it");
+
+    build(&workspace.site(), &out).expect("the build succeeds");
+
+    assert!(
+        out.join("stale.html").exists(),
+        "a file was removed on the word of a record that could not be read"
+    );
+    assert!(out.join("index.html").exists(), "the page is not written");
+}
+
+#[test]
+fn a_page_that_cannot_be_built_leaves_the_output_alone() {
+    let workspace = Workspace::new("build-broken-page");
+    minimal_site(&workspace);
+
+    let out = workspace.join("out");
+    build(&workspace.site(), &out).expect("the first build succeeds");
+    std::fs::write(out.join("bundle.js"), "console.log(1)").expect("can write it");
+
+    let good = workspace.read("out/index.html");
+
+    workspace.write(
+        "templates/rota.html",
+        "<html type=\"layout\"/>\n<main>{no existe}</main>\n",
+    );
+
+    let error = match build(&workspace.site(), &out) {
+        Err(error) => error,
+        Ok(built) => panic!(
+            "expected an undefined-variable error, built {}",
+            built.pages
+        ),
+    };
+    assert!(matches!(error, BuildError::Expand { .. }));
+
+    assert!(
+        out.join("bundle.js").exists(),
+        "the output was touched by a build that failed"
+    );
+    assert_eq!(
+        workspace.read("out/index.html"),
+        good,
+        "the last good page was replaced by a failed build"
+    );
+    assert!(
+        !out.join("rota.html").exists(),
+        "the page that failed was written anyway"
+    );
 }
 
 #[test]
@@ -1209,7 +1458,7 @@ fn a_missing_input_is_told_apart_from_a_directory_without_a_config() {
 
 #[test]
 fn a_directory_without_a_config_still_reports_no_config() {
-    let workspace = Workspace::new("build-no-config");
+    let workspace = Workspace::new("build-no-config-empty");
 
     std::fs::create_dir_all(&workspace.path).expect("can create the directory");
 
